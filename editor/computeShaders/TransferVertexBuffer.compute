@@ -1,0 +1,554 @@
+#pragma use_dxc
+
+#pragma kernel CSMain
+
+
+ByteAddressBuffer vertIn;
+RWByteAddressBuffer vertOut;
+
+
+
+// Packed Channel info: each uint represents a channel in the vertex struct in this order:
+// position, normal, tangent, color, and UVs 0-7. 
+// Each int contains several pieces of data bit-packed together 
+// byte 0: vector dimension, with 0 meaning that the struct does not contain this channel 
+// byte 1: data format enum (see below)
+// byte 2: byte offset of the channel in the vertex struct 
+// byte 3: byte count of the format, only present in the output struct since
+// FORMAT: // no handling for other types, if you want to use ints for data just make sure the output channel is not compressed and float32, and asfloat the ints
+#define FORMAT_FLOAT 4 // 0 - float
+#define FORMAT_HALF  3 // 1 - half
+#define FORMAT_SNORM 2 // 2 - snorm
+#define FORMAT_UNORM 1 // 3 - unorm
+
+
+cbuffer MeshInBuffer
+{
+	float4x4 ObjectToWorld;
+	float4x4 WorldToObject;
+	float4 lightmapScaleOffset;
+	int4 offset_strideIn_TanSign; // offset in the output buffer to write this mesh at in x, vertex struct stride in y, sign of the tangent in z
+	uint4 inPackedChannelInfo[3];
+};
+
+cbuffer MeshOutBuffer
+{
+	int4 strideOut; // vertex struct stride in x, rest empty
+	uint4 outPackedChannelInfo[3];
+};
+
+
+uint GetDimension(uint packedInfo)
+{
+	return (packedInfo & 0x00000ffu);
+}
+
+uint GetFormat(uint packedInfo)
+{
+	return (packedInfo >> 8) & 0x00000ffu;
+}
+
+uint GetOffset(uint packedInfo)
+{
+	return (packedInfo >> 16) & 0x000000ffu;
+}
+
+uint GetByteCount(uint packedInfo)
+{
+	return (packedInfo >> 24) & 0x00000ffu;
+}
+
+// UNorm to Float -------------------------------------------------------------
+
+float ConvertUNormToFloat(uint packedValue)
+{
+	float floatVal = (1.0 / 255.0) * ((float) packedValue);
+	return floatVal;
+}
+
+float2 ConvertUNorm2ToFloat2(uint packedValue)
+{
+	uint2 unpackedVal = uint2(0x000000FF & packedValue, packedValue >> 8);
+	float2 floatVal = (1.0 / 255.0) * float2(unpackedVal);
+	return floatVal;
+}
+
+float3 ConvertUNorm3ToFloat3(uint packedValue)
+{
+	uint3 unpackedVal = uint3(0x000000FF & packedValue, 0x000000FF & (packedValue >> 8), packedValue >> 16);
+	float3 floatVal = (1.0 / 255.0) * float3(unpackedVal);
+	return floatVal;
+}
+
+float4 ConvertUNorm4ToFloat4(uint packedValue)
+{
+	uint4 unpackedVal = uint4(0x000000FF & packedValue, 0x000000FF & (packedValue >> 8), 0x000000FF & (packedValue >> 16), packedValue >> 24);
+	float4 floatVal = (1.0 / 255.0) * float4(unpackedVal);
+	return floatVal;
+}
+
+// Float To UNorm -------------------------------------------------------------
+
+uint ConvertFloatToUNorm(float value)
+{
+	uint intVal = uint(255.0 * saturate(value));
+	return 0x000000FFu & intVal;
+}
+
+uint ConvertFloat2ToUNorm2(float2 value)
+{
+	uint2 int2Val = uint2(255.0 * saturate(value));
+	int2Val = int2Val & 0x000000FFu;
+	uint intVal = int2Val.x | (int2Val.y << 8);
+	return intVal;
+}
+
+uint ConvertFloat3ToUNorm3(float3 value)
+{
+	uint3 int3Val = uint3(255.0 * saturate(value));
+	int3Val = int3Val & 0x000000FFu;
+	uint intVal = int3Val.x | (int3Val.y << 8) | (int3Val.z << 16);
+	return intVal;
+}
+
+uint ConvertFloat4ToUNorm4(float4 value)
+{
+	uint4 int3Val = uint4(round(255.0 * saturate(value)));
+	//int3Val = int3Val & 0x000000FFu;
+	uint intVal = int3Val.x | (int3Val.y << 8) | (int3Val.z << 16) | (int3Val.w << 24);
+	return intVal;
+}
+
+
+// SNorm to Float -------------------------------------------------------------
+
+float ConvertSNormToFloat(uint packedValue)
+{
+	float floatVal = (1.0 / 127.5) * ((float) packedValue) - 1.0;
+	return floatVal;
+}
+
+float2 ConvertSNorm2ToFloat2(uint packedValue)
+{
+	uint2 unpackedVal = uint2(0x000000FF & packedValue, packedValue >> 8);
+	float2 floatVal = (1.0 / 127.5) * float2(unpackedVal) - 1.0;
+	return floatVal;
+}
+
+float3 ConvertSNorm3ToFloat3(uint packedValue)
+{
+	uint3 unpackedVal = uint3(0x000000FF & packedValue, 0x000000FF & (packedValue >> 8), packedValue >> 16);
+	float3 floatVal = (1.0 / 127.5) * float3(unpackedVal) - 1.0;
+	return floatVal;
+}
+
+float4 ConvertSNorm4ToFloat4(uint packedValue)
+{
+	uint4 unpackedVal = uint4(0x000000FF & packedValue, 0x000000FF & (packedValue >> 8), 0x000000FF & (packedValue >> 16), packedValue >> 24);
+	float4 floatVal = (1.0 / 127.5) * float4(unpackedVal) - 1.0;
+	return floatVal;
+}
+
+// Float To SNorm -------------------------------------------------------------
+
+uint ConvertFloatToSNorm(float value)
+{
+	uint intVal = uint(255.0 * saturate(0.5 * value + 0.5));
+	return 0x000000FFu & intVal;
+}
+
+uint ConvertFloat2ToSNorm2(float2 value)
+{
+	uint2 int2Val = uint2(255.0 * saturate(0.5 * value + 0.5));
+	int2Val = int2Val & 0x000000FFu;
+	uint intVal = int2Val.x | (int2Val.y << 8);
+	return intVal;
+}
+
+uint ConvertFloat3ToSNorm3(float3 value)
+{
+	uint3 int3Val = uint3(255.0 * saturate(0.5 * value + 0.5));
+	int3Val = int3Val & 0x000000FFu;
+	uint intVal = int3Val.x | (int3Val.y << 8) | (int3Val.z << 16);
+	return intVal;
+}
+
+uint ConvertFloat4ToSNorm4(float4 value)
+{
+	uint4 int3Val = uint4(round(255.0 * saturate(0.5 * value + 0.5)));
+	//int3Val = int3Val & 0x000000FFu;
+	uint intVal = int3Val.x | (int3Val.y << 8) | (int3Val.z << 16) | (int3Val.w << 24);
+	return intVal;
+}
+
+// Half to Float --------------------------------------------------------------
+
+float2 ConvertHalf2toFloat2(uint packedValue)
+{
+	uint2 unpackedInt = uint2(packedValue, packedValue >> 16);
+	return f16tof32(unpackedInt);
+}
+
+float3 ConvertHalf3toFloat3(uint2 packedValue)
+{
+	uint3 unpackedInt = uint3(packedValue.x, packedValue.x >> 16, packedValue.y);
+	return f16tof32(unpackedInt);
+}
+
+float4 ConvertHalf4toFloat4(uint2 packedValue)
+{
+	uint4 unpackedInt = uint4(packedValue.x, packedValue.x >> 16, packedValue.y, packedValue.y >> 16);
+	return f16tof32(unpackedInt);
+}
+
+// Float to Half --------------------------------------------------------------
+
+uint ConvertFloat2ToHalf2(float2 value)
+{
+	uint2 halfInt = f32tof16(value);
+	return (halfInt.x | (halfInt.y << 16));
+}
+
+uint2 ConvertFloat3ToHalf3(float3 value)
+{
+	uint3 halfInt = f32tof16(value);
+	return uint2(halfInt.x | (halfInt.y << 16), halfInt.z);
+}
+
+uint2 ConvertFloat4ToHalf4(float4 value)
+{
+	uint4 halfInt = f32tof16(value);
+	return uint2(halfInt.x | (halfInt.y << 16), halfInt.z | (halfInt.w << 16));
+}
+
+// Write To Buffer --------------------------------------------------------------
+
+// Write a unorm or snorm to the buffer
+void WriteByte(uint value, uint adr, const RWByteAddressBuffer buffer)
+{
+	//uint dummy;
+	//buffer.InterlockedAnd(adr, 0xffffff00u, dummy);
+	//buffer.InterlockedOr(adr, 0x000000ffu & value, dummy);
+	uint outValue = buffer.Load(adr);
+	outValue = (outValue & 0xffffff00u) | (value & 0x000000ffu);
+	buffer.Store(adr, outValue);
+}
+
+// write a half, short, unorm2, or snorm2 to the buffer
+void Write2Bytes(uint value, uint adr, const RWByteAddressBuffer buffer)
+{
+	//uint dummy;
+	//buffer.InterlockedAnd(adr, 0xffff0000u, dummy);
+	//buffer.InterlockedOr(adr, 0x0000ffffu & value, dummy);
+	uint outValue = buffer.Load(adr);
+	outValue = (outValue & 0xffff0000u) | (value & 0x0000ffffu);
+	buffer.Store(adr, outValue);
+}
+
+// write a unorm3 or snorm3 to the buffer
+void Write3Bytes(uint value, uint adr, const RWByteAddressBuffer buffer)
+{
+	//uint dummy;
+	//buffer.InterlockedAnd(adr, 0xff000000u, dummy);
+	//buffer.InterlockedOr(adr, 0x00ffffffu & value, dummy);
+	uint outValue = buffer.Load(adr);
+	outValue = (outValue & 0xffff0000u) | (value & 0x0000ffffu);
+	buffer.Store(adr, outValue);
+}
+
+// Write a float, int, half2, short2, unorm4, or snorm4 to the buffer
+void Write4Bytes(uint value, uint adr, const RWByteAddressBuffer buffer)
+{
+	buffer.Store(adr, value);
+}
+
+// write a half3 or short3 to the buffer
+void Write6Bytes(const uint2 value, const uint adr, const RWByteAddressBuffer buffer)
+{
+	buffer.Store(adr, value[0]);
+	Write2Bytes(value[1], adr + 4, buffer);
+}
+
+// write a float2, int2, half4 or short4 to the buffer
+void Write8Bytes(const uint2 value, const uint adr, const RWByteAddressBuffer buffer)
+{
+	buffer.Store2(adr, value);
+}
+
+// write a float3 or int3 to the buffer
+void Write12Bytes(const uint3 value, const uint adr, const RWByteAddressBuffer buffer)
+{
+	buffer.Store3(adr, value);
+}
+
+// write a float4 or int4 to the buffer
+void Write16Bytes(const uint4 value, const uint adr, const RWByteAddressBuffer buffer)
+{
+	buffer.Store4(adr, value);
+}
+
+static uint formatToBytes[] = {1, 1, 1, 2, 4};
+
+void WriteValue(const RWByteAddressBuffer buffer, const uint adr, const uint format, const uint dimension, const uint4 value)
+{
+	uint byteCount = formatToBytes[format];
+	uint byteCase = byteCount * dimension;
+	switch (byteCase)
+	{
+		case 4:
+			Write4Bytes(value.x, adr, buffer);
+			break;
+		case 8:
+			Write8Bytes(value.xy, adr, buffer);
+			break;
+		case 12:
+			Write12Bytes(value.xyz, adr, buffer);
+			break;
+		case 16:
+			Write16Bytes(value, adr, buffer);
+			break;
+	}
+}
+
+void WriteValueVtx(const RWByteAddressBuffer buffer, const uint adr, const uint format, const uint dimension, const uint4 value)
+{
+	uint byteCount = formatToBytes[format];
+	uint byteCase = byteCount * dimension;
+	switch (byteCase)
+	{
+		case 8:
+			Write8Bytes(value.xy, adr, buffer);
+			break;
+		case 12:
+			Write12Bytes(value.xyz, adr, buffer);
+			break;
+		default:
+			Write12Bytes(uint3(1, 1, 1), adr, buffer);
+			break;
+	}
+}
+
+void WriteValueNorm(const RWByteAddressBuffer buffer, const uint adr, const uint format, const uint dimension, const uint4 value)
+{
+	uint byteCount = formatToBytes[format];
+	uint byteCase = byteCount * dimension;
+	switch (byteCase)
+	{
+		case 4:
+			Write4Bytes(value.x, adr, buffer);
+			break;
+		case 8:
+			Write8Bytes(value.xy, adr, buffer);
+			break;
+		case 12:
+			Write12Bytes(value.xyz, adr, buffer);
+			break;
+		default:
+			Write8Bytes(uint2(0xFFFFFFFF, 0xFFFFFFFF), adr, buffer);
+			break;
+	}
+}
+
+void WriteValueTanColor(const RWByteAddressBuffer buffer, const uint adr, const uint format, const uint dimension, const uint4 value)
+{
+	uint byteCount = formatToBytes[format];
+	uint byteCase = byteCount * dimension;
+	switch (byteCase)
+	{
+		case 4:
+			Write4Bytes(value.x, adr, buffer);
+			break;
+		case 8:
+			Write8Bytes(value.xy, adr, buffer);
+			break;
+		case 16:
+			Write16Bytes(value, adr, buffer);
+			break;
+	}
+}
+
+
+float4 ConvertRawToFloat(const uint4 value, uint format)
+{
+	format = clamp(format, FORMAT_UNORM, FORMAT_FLOAT);
+	switch (format)
+	{
+		case FORMAT_UNORM: // unorm
+			return ConvertUNorm4ToFloat4(value.x);
+			break;
+		case FORMAT_SNORM: // snorm
+			return ConvertSNorm4ToFloat4(value.x);
+			break;
+		case FORMAT_HALF: // half
+			return ConvertHalf4toFloat4(value.xy);
+			break;
+		case FORMAT_FLOAT: // float
+			return asfloat(value);
+			break;
+		default:
+			return float4(0, 0, 0, 0);
+	}
+}
+
+uint4 ConvertFloatToRaw(const float4 value, uint format)
+{
+	format = clamp(format, FORMAT_UNORM, FORMAT_FLOAT);
+	switch (format)
+	{
+		case FORMAT_FLOAT: // float
+			return asuint(value);
+			break;
+		case FORMAT_HALF: // half
+			return uint4(ConvertFloat4ToHalf4(value), 0, 0);
+			break;
+		case FORMAT_SNORM: // snorm
+			return uint4(ConvertFloat4ToSNorm4(value), 0, 0, 0);
+			break;
+		case FORMAT_UNORM: // unorm
+			return uint4(ConvertFloat4ToUNorm4(value), 0, 0, 0);
+			break;
+		default:
+			return float4(0, 0, 0, 0);
+	}
+}
+
+void WritePositionChannel(const uint inPackedInfo, const uint outPackedInfo, const uint vertInAdr, const uint vertOutAdr)
+{
+	uint address = vertInAdr; // + (inPackedInfo & 0x000000ffu); // The vertex position should always be at the start of the struct, don't bother adding the offset
+	uint4 rawData = vertIn.Load4(address);
+	uint inFmt = GetFormat(inPackedInfo);
+	// Out format will always be float32x3. Period. Half-precision isn't accurate enough for a world-centered combined mesh, 
+	// uint outFmt = (outPackedInfo >> 12) & 0x0000000fu; 
+  //inFmt = clamp(inFmt, FORMAT_HALF, FORMAT_FLOAT); // Hint to the compiler that this will always be float or half. 
+	// I don't think I've ever seen a mesh with half precision positions, although its technically possible. So convert anyways
+	float4 position = ConvertRawToFloat(rawData, inFmt);
+	position.w = 1;
+	position = mul(ObjectToWorld, position);
+	rawData = asuint(position);
+	uint outAddress = vertOutAdr; // + (outPackedInfo & 0x000000ffu);  // The vertex position should always be at the start of the struct, don't bother adding the offset
+
+	//uint inByteEnum = BYTECOUNT_12; //GetByteCountEnum(inPackedInfo); input will always a dimension of 3, and output will always be float32
+	WriteValueVtx(vertOut, outAddress, FORMAT_FLOAT, 3, rawData);
+}
+
+void WriteNormalChannel(uint inPackedInfo, uint outPackedInfo, uint vertInAdr, uint vertOutAdr)
+{
+	[branch]
+	if (GetDimension(inPackedInfo) > 0u) // output mesh guaranteed to have the channel if an input mesh has it
+	{
+		uint address = vertInAdr + GetOffset(inPackedInfo);
+		uint4 rawData = vertIn.Load4(address);
+		uint inFmt = GetFormat(inPackedInfo);
+	   
+		float3 normal = ConvertRawToFloat(rawData, inFmt).xyz; // normal is always 3 components, if not wtf are you doing?
+	  
+		// Transform to world space using the appropriate method for normals, but don't bother normalizing the normal. The shader is going to do that anyways, and this ensures the rendering behavior of the combined mesh matches the indiviudal mesh 
+		normal = mul(normal, (float3x3) WorldToObject);
+	   
+		
+		uint outFmt = GetFormat(outPackedInfo);
+		outFmt = clamp(outFmt, FORMAT_SNORM, FORMAT_FLOAT);
+		rawData = ConvertFloatToRaw(float4(normal.xyz, 0), outFmt);
+		uint outAddress = vertOutAdr + GetOffset(outPackedInfo);
+		uint outDimension = GetDimension(outPackedInfo);
+	   // uint inByteEnum = clamp(GetByteCountEnum(inPackedInfo), BYTECOUNT_3, BYTECOUNT_12); //always 3 components, can be snorm to float
+		WriteValueNorm(vertOut, outAddress, outFmt, outDimension, rawData);
+	}
+}
+
+void WriteTangentChannel(uint inPackedInfo, uint outPackedInfo, uint vertInAdr, uint vertOutAdr)
+{
+	[branch]
+	if (GetDimension(inPackedInfo) > 0u) // output mesh guaranteed to have the channel if an input mesh has it
+	{
+		uint address = vertInAdr + GetOffset(inPackedInfo);
+		uint4 rawData = vertIn.Load4(address);
+		uint inFmt = GetFormat(inPackedInfo);
+	   
+		float4 tangent = ConvertRawToFloat(rawData, inFmt); // tangent is always 4 components, if not wtf are you doing?
+	  
+		// Transform to world space, and flip the direction if the mesh is scaled negatively. 
+		tangent.xyz = mul((float3x3) ObjectToWorld, tangent.xyz);
+		tangent.w *= offset_strideIn_TanSign.z > 0 ? 1.0 : -1.0;
+		
+		uint outFmt = GetFormat(outPackedInfo);
+		outFmt = clamp(outFmt, FORMAT_SNORM, FORMAT_FLOAT);
+		rawData = ConvertFloatToRaw(tangent, outFmt);
+		uint outAddress = vertOutAdr + GetOffset(outPackedInfo);
+		//uint inByteEnum = clamp(GetByteCountEnum(inPackedInfo), BYTECOUNT_4, BYTECOUNT_16); //always 4 components, can be snorm to float
+		
+		WriteValueTanColor(vertOut, outAddress, outFmt, 4, rawData);
+	}
+}
+
+void WriteColorChannel(uint inPackedInfo, uint outPackedInfo, uint vertInAdr, uint vertOutAdr)
+{
+	[branch]
+	if ((outPackedInfo & 0x0000000fu) > 0u) // input mesh not guaranteed to have color even if the output does, thus we have to initialize it to 1,1,1,1 if it doesn't 
+	{
+		float4 color;
+		uint4 rawData;
+		uint inDimension = GetDimension(inPackedInfo);
+		if (inDimension > 0u)
+		{
+			uint address = vertInAdr + GetOffset(inPackedInfo);
+			rawData = vertIn.Load4(address);
+			uint inFmt = GetFormat(inPackedInfo);
+			color = ConvertRawToFloat(rawData, inFmt);
+		}
+		else
+		{
+			color = float4(1, 1, 1, 1);
+		}
+		
+		uint outFmt = GetFormat(outPackedInfo);
+		rawData = ConvertFloatToRaw(color, outFmt);
+		uint outAddress = vertOutAdr + GetOffset(outPackedInfo);
+		uint outDimension = GetDimension(outPackedInfo);
+		//uint inByteEnum = GetByteCountEnum(inPackedInfo);
+		WriteValueTanColor(vertOut, outAddress, outFmt, outDimension, rawData);
+	}
+}
+
+void WriteUVChannel(uint inPackedInfo, uint outPackedInfo, uint vertInAdr, uint vertOutAdr, bool lmScaleOffset)
+{
+	[branch]
+	if (GetDimension(inPackedInfo) > 0u) // output mesh guaranteed to have the channel if an input mesh has it
+	{
+		uint address = vertInAdr + GetOffset(inPackedInfo);
+		uint4 rawData = vertIn.Load4(address);
+		uint inFmt = GetFormat(inPackedInfo);
+		
+		float4 UV = ConvertRawToFloat(rawData, inFmt);
+		if (lmScaleOffset) 
+			UV.xy = UV.xy * lightmapScaleOffset.xy + lightmapScaleOffset.zw;
+		uint outFmt = GetFormat(outPackedInfo);
+		rawData = ConvertFloatToRaw(UV, outFmt);
+		uint outAddress = vertOutAdr + GetOffset(outPackedInfo);
+		uint inDimension = GetDimension(inPackedInfo);
+		//uint inByteEnum = GetByteCountEnum(inPackedInfo);
+		WriteValue(vertOut, outAddress, outFmt, inDimension, rawData);
+	}
+}
+
+[numthreads(32,1,1)]
+void CSMain (uint3 id : SV_DispatchThreadID)
+{
+	uint vertInAdr = (id.x * asuint(offset_strideIn_TanSign.y));
+	uint vertOutAdr = (id.x * asuint(strideOut.x) + offset_strideIn_TanSign.x);
+	
+	WritePositionChannel(inPackedChannelInfo[0][0], outPackedChannelInfo[0][0], vertInAdr, vertOutAdr);
+	WriteNormalChannel(inPackedChannelInfo[0][1], outPackedChannelInfo[0][1], vertInAdr, vertOutAdr);
+	WriteTangentChannel(inPackedChannelInfo[0][2], outPackedChannelInfo[0][2], vertInAdr, vertOutAdr);
+	WriteColorChannel(inPackedChannelInfo[0][3], outPackedChannelInfo[0][3], vertInAdr, vertOutAdr);
+	
+	[unroll] for (int r = 1; r < 3; r++)
+	[unroll] for (int c = 0; c < 4; c++)
+	{
+		WriteUVChannel(inPackedChannelInfo[r][c], outPackedChannelInfo[r][c], vertInAdr, vertOutAdr, (r==1) && (c==1));
+	}
+}
+
+
+
+

@@ -1,0 +1,18 @@
+{
+  "name": "com.stresslevelzero.static-batching",
+  "description": "A complete reimplementation of the mesh combination and generation process done by static batching. Spatially sorts renderers in each combined mesh to ensure maximum efficiency, and also provides new options like 32 bit indicies and grouping volumes",
+  "version": "1.0.0",
+  "unity": "2021.3",
+  "displayName": "SLZ Static Batching",
+  "dependencies": {
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/StressLevelZero/CustomStaticBatching.git"
+  },
+  "author": {
+    "name": "StressLevelZero",
+    "email": "contact@stresslevelzero.com",
+    "url": "http://www.stresslevelzero.com/"
+  }
+}
