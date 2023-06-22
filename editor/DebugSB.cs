@@ -12,20 +12,27 @@ namespace SLZ.SLZEditorTools
 		public static void PrintDebugMessage()
 		{
 			GameObject[] selection = Selection.gameObjects;
-			List<RendererData> meshRenderers = new List<RendererData>(selection.Length);
-			for (int i = 0; i < selection.Length; i++) 
+			List<MeshFilter> filters = new List<MeshFilter>();
+			for (int i =0; i < selection.Length; i++)
+			{
+				MeshFilter[] mf2 = selection[i].GetComponentsInChildren<MeshFilter>();
+				filters.AddRange(mf2);
+			}
+			List<RendererData> meshRenderers = new List<RendererData>(filters.Count);
+			for (int i = 0; i < filters.Count; i++) 
 			{ 
-				MeshFilter mf = selection[i].GetComponent<MeshFilter>();
-				MeshRenderer mr = selection[i].GetComponent<MeshRenderer>();
-				if (mf != null && mr != null) 
+				MeshFilter mf = filters[i];
+				MeshRenderer mr = filters[i].GetComponent<MeshRenderer>();
+				if (mf != null && mr != null && mf.sharedMesh != null) 
 				{ 
+					
 					int numSubMeshes = mf.sharedMesh.subMeshCount;
 					uint idxCount = 0;
 					for (int sm = 0; sm < numSubMeshes; sm++) 
 					{
 						idxCount += mf.sharedMesh.GetIndexCount(sm);
 					}
-					RendererData rd = new RendererData() { mesh = mf.sharedMesh, indexCount = idxCount, meshFilter = mf, meshRenderer = mr};
+					RendererData rd = new RendererData() { mesh = mf.sharedMesh, indexCount = idxCount, meshFilter = mf, meshRenderer = mr, rendererTransform = filters[i].transform };
 					meshRenderers.Add(rd);
 				}
 			}
@@ -33,4 +40,8 @@ namespace SLZ.SLZEditorTools
 			combiner.CombineMeshes(meshRenderers.ToArray());
 		}
 	}
+
+
+
+
 }

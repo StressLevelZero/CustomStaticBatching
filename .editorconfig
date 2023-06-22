@@ -1,0 +1,13 @@
+# Remove the line below if you want to inherit .editorconfig settings from higher directories
+#root = true
+
+# C# files
+[*]
+
+#### Core EditorConfig Options ####
+
+# Indentation and spacing
+indent_style = tab
+
+# New line preferences
+end_of_line = lf

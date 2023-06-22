@@ -469,7 +469,7 @@ void WriteTangentChannel(uint inPackedInfo, uint outPackedInfo, uint vertInAdr, 
 	  
 		// Transform to world space, and flip the direction if the mesh is scaled negatively. 
 		tangent.xyz = mul((float3x3) ObjectToWorld, tangent.xyz);
-		tangent.w *= offset_strideIn_TanSign.z > 0 ? 1.0 : -1.0;
+		tangent.w *= offset_strideIn_TanSign.z;
 		
 		uint outFmt = GetFormat(outPackedInfo);
 		outFmt = clamp(outFmt, FORMAT_SNORM, FORMAT_FLOAT);
