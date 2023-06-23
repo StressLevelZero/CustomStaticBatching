@@ -27,6 +27,7 @@ cbuffer MeshInBuffer
 	float4x4 ObjectToWorld;
 	float4x4 WorldToObject;
 	float4 lightmapScaleOffset;
+	float4 dynLightmapScaleOffset;
 	int4 offset_strideIn_TanSign; // offset in the output buffer to write this mesh at in x, vertex struct stride in y, sign of the tangent in z
 	uint4 inPackedChannelInfo[3];
 };
@@ -510,7 +511,7 @@ void WriteColorChannel(uint inPackedInfo, uint outPackedInfo, uint vertInAdr, ui
 	}
 }
 
-void WriteUVChannel(uint inPackedInfo, uint outPackedInfo, uint vertInAdr, uint vertOutAdr, bool lmScaleOffset)
+void WriteUVChannel(uint inPackedInfo, uint outPackedInfo, uint vertInAdr, uint vertOutAdr, bool lmScaleOffset, bool dynLmScaleOffset)
 {
 	[branch]
 	if (GetDimension(inPackedInfo) > 0u) // output mesh guaranteed to have the channel if an input mesh has it
@@ -522,6 +523,8 @@ void WriteUVChannel(uint inPackedInfo, uint outPackedInfo, uint vertInAdr, uint 
 		float4 UV = ConvertRawToFloat(rawData, inFmt);
 		if (lmScaleOffset) 
 			UV.xy = UV.xy * lightmapScaleOffset.xy + lightmapScaleOffset.zw;
+		if (lmScaleOffset) 
+			UV.xy = UV.xy * dynLightmapScaleOffset.xy + dynLightmapScaleOffset.zw;
 		uint outFmt = GetFormat(outPackedInfo);
 		rawData = ConvertFloatToRaw(UV, outFmt);
 		uint outAddress = vertOutAdr + GetOffset(outPackedInfo);
@@ -545,7 +548,7 @@ void CSMain (uint3 id : SV_DispatchThreadID)
 	[unroll] for (int r = 1; r < 3; r++)
 	[unroll] for (int c = 0; c < 4; c++)
 	{
-		WriteUVChannel(inPackedChannelInfo[r][c], outPackedChannelInfo[r][c], vertInAdr, vertOutAdr, (r==1) && (c==1));
+		WriteUVChannel(inPackedChannelInfo[r][c], outPackedChannelInfo[r][c], vertInAdr, vertOutAdr, (r == 1) && (c == 1), (r == 1) && (c == 2));
 	}
 }
 

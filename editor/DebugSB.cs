@@ -3,8 +3,9 @@ using System.Collections.Generic;
 using UnityEngine;
 using UnityEditor;
 using System.Linq;
+using SLZ.CustomStaticBatching;
 
-namespace SLZ.SLZEditorTools
+namespace SLZ.CustomStaticBatching.Editor
 {
 	public class DebugSB
 	{
@@ -36,8 +37,10 @@ namespace SLZ.SLZEditorTools
 					meshRenderers.Add(rd);
 				}
 			}
-			SBCombineMeshList combiner = new SBCombineMeshList();
-			combiner.CombineMeshes(meshRenderers.ToArray());
+			ComputeShader transferVtxCompute = SBCombineMeshEditor.GetTransferVtxComputeShader();
+			SBCombineMeshList combiner = new SBCombineMeshList(transferVtxCompute);
+			combiner.SetCompressionFromProjectSettings();
+			combiner.GenerateStaticBatches(meshRenderers.ToArray());
 		}
 	}
 
