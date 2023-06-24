@@ -83,15 +83,19 @@ namespace SLZ.CustomStaticBatching.Editor
 				return projectSettings;
 			}
 		}
+
 		public static void AssignSBCombinedMesh(Mesh combinedMesh, RendererData[] rd, int[] renderer2Mesh, ref NativeArray<byte> invalidMeshes, int2 rendererRange)
 		{
+
 			int submeshIdx = 0;
+			MeshRenderer[] mrArray = new MeshRenderer[1];
 			for (int i = rendererRange.x; i < rendererRange.y; i++)
 			{
 				if (invalidMeshes[renderer2Mesh[i]] == 0)
 				{
 					rd[i].meshFilter.sharedMesh = combinedMesh;
-					SerializedObject so = new SerializedObject(rd[i].meshRenderer);
+					mrArray[0] = rd[i].meshRenderer;
+					SerializedObject so = new SerializedObject(mrArray); // Pass this an array instead of the renderer directly, otherwise every time we call this it internally allocates a 1-long array!
 
 					SerializedProperty spFirst = so.FindProperty("m_StaticBatchInfo.firstSubMesh");
 					spFirst.intValue = submeshIdx;
@@ -100,7 +104,8 @@ namespace SLZ.CustomStaticBatching.Editor
 					SerializedProperty spCount = so.FindProperty("m_StaticBatchInfo.subMeshCount");
 					spCount.intValue = submeshCount;
 
-					so.ApplyModifiedProperties();
+					so.ApplyModifiedPropertiesWithoutUndo();
+
 					GameObject go = rd[i].rendererTransform.gameObject;
 					StaticEditorFlags flags = GameObjectUtility.GetStaticEditorFlags(go);
 					GameObjectUtility.SetStaticEditorFlags(go, flags & ~StaticEditorFlags.BatchingStatic);

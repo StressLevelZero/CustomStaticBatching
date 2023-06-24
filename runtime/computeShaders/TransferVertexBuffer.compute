@@ -2,9 +2,17 @@
 
 #pragma kernel CSMain
 
+#pragma multi_compile _ SPLIT_INPUT
+#pragma multi_compile _ SPLIT_OUTPUT
 
 ByteAddressBuffer vertIn;
+#if defined(SPLIT_INPUT)
+ByteAddressBuffer vertIn2;
+#endif
 RWByteAddressBuffer vertOut;
+#if defined(SPLIT_OUTPUT)
+RWByteAddressBuffer vertOut2;
+#endif
 
 
 
@@ -14,7 +22,7 @@ RWByteAddressBuffer vertOut;
 // byte 0: vector dimension, with 0 meaning that the struct does not contain this channel 
 // byte 1: data format enum (see below)
 // byte 2: byte offset of the channel in the vertex struct 
-// byte 3: byte count of the format, only present in the output struct since
+// byte 3: vertex stream of the channel, can only be 0 or 1
 // FORMAT: // no handling for other types, if you want to use ints for data just make sure the output channel is not compressed and float32, and asfloat the ints
 #define FORMAT_FLOAT 4 // 0 - float
 #define FORMAT_HALF  3 // 1 - half
@@ -28,13 +36,13 @@ cbuffer MeshInBuffer
 	float4x4 WorldToObject;
 	float4 lightmapScaleOffset;
 	float4 dynLightmapScaleOffset;
-	int4 offset_strideIn_TanSign; // offset in the output buffer to write this mesh at in x, vertex struct stride in y, sign of the tangent in z
+	int4 offset_strideIn_TanSign; // offset in the output buffer to write this mesh at in x, vertex struct stride in y, sign of the tangent and the offset of the optional secondary output buffer on z, and stride of the optional secondary input buffer on w 
 	uint4 inPackedChannelInfo[3];
 };
 
 cbuffer MeshOutBuffer
 {
-	int4 strideOut; // vertex struct stride in x, rest empty
+	int4 strideOut; // vertex struct stride in x, stride of the optional second vertex buffer in y, rest empty
 	uint4 outPackedChannelInfo[3];
 };
 
@@ -61,25 +69,6 @@ uint GetByteCount(uint packedInfo)
 
 // UNorm to Float -------------------------------------------------------------
 
-float ConvertUNormToFloat(uint packedValue)
-{
-	float floatVal = (1.0 / 255.0) * ((float) packedValue);
-	return floatVal;
-}
-
-float2 ConvertUNorm2ToFloat2(uint packedValue)
-{
-	uint2 unpackedVal = uint2(0x000000FF & packedValue, packedValue >> 8);
-	float2 floatVal = (1.0 / 255.0) * float2(unpackedVal);
-	return floatVal;
-}
-
-float3 ConvertUNorm3ToFloat3(uint packedValue)
-{
-	uint3 unpackedVal = uint3(0x000000FF & packedValue, 0x000000FF & (packedValue >> 8), packedValue >> 16);
-	float3 floatVal = (1.0 / 255.0) * float3(unpackedVal);
-	return floatVal;
-}
 
 float4 ConvertUNorm4ToFloat4(uint packedValue)
 {
@@ -90,27 +79,6 @@ float4 ConvertUNorm4ToFloat4(uint packedValue)
 
 // Float To UNorm -------------------------------------------------------------
 
-uint ConvertFloatToUNorm(float value)
-{
-	uint intVal = uint(255.0 * saturate(value));
-	return 0x000000FFu & intVal;
-}
-
-uint ConvertFloat2ToUNorm2(float2 value)
-{
-	uint2 int2Val = uint2(255.0 * saturate(value));
-	int2Val = int2Val & 0x000000FFu;
-	uint intVal = int2Val.x | (int2Val.y << 8);
-	return intVal;
-}
-
-uint ConvertFloat3ToUNorm3(float3 value)
-{
-	uint3 int3Val = uint3(255.0 * saturate(value));
-	int3Val = int3Val & 0x000000FFu;
-	uint intVal = int3Val.x | (int3Val.y << 8) | (int3Val.z << 16);
-	return intVal;
-}
 
 uint ConvertFloat4ToUNorm4(float4 value)
 {
@@ -123,78 +91,28 @@ uint ConvertFloat4ToUNorm4(float4 value)
 
 // SNorm to Float -------------------------------------------------------------
 
-float ConvertSNormToFloat(uint packedValue)
-{
-	float floatVal = (1.0 / 127.5) * ((float) packedValue) - 1.0;
-	return floatVal;
-}
-
-float2 ConvertSNorm2ToFloat2(uint packedValue)
-{
-	uint2 unpackedVal = uint2(0x000000FF & packedValue, packedValue >> 8);
-	float2 floatVal = (1.0 / 127.5) * float2(unpackedVal) - 1.0;
-	return floatVal;
-}
-
-float3 ConvertSNorm3ToFloat3(uint packedValue)
-{
-	uint3 unpackedVal = uint3(0x000000FF & packedValue, 0x000000FF & (packedValue >> 8), packedValue >> 16);
-	float3 floatVal = (1.0 / 127.5) * float3(unpackedVal) - 1.0;
-	return floatVal;
-}
 
 float4 ConvertSNorm4ToFloat4(uint packedValue)
 {
-	uint4 unpackedVal = uint4(0x000000FF & packedValue, 0x000000FF & (packedValue >> 8), 0x000000FF & (packedValue >> 16), packedValue >> 24);
-	float4 floatVal = (1.0 / 127.5) * float4(unpackedVal) - 1.0;
+	uint4 unpackedVal = uint4(packedValue << 24, 0xFF000000 & (packedValue << 16), 0xFF000000 & (packedValue << 8), 0xFF000000 & packedValue);
+	int4 unpackedSVal = asint(unpackedVal) / 0x1000000;
+	float4 floatVal = max((1.0 / 127.0) * float4(unpackedSVal), -1.0);
 	return floatVal;
 }
 
 // Float To SNorm -------------------------------------------------------------
 
-uint ConvertFloatToSNorm(float value)
-{
-	uint intVal = uint(255.0 * saturate(0.5 * value + 0.5));
-	return 0x000000FFu & intVal;
-}
-
-uint ConvertFloat2ToSNorm2(float2 value)
-{
-	uint2 int2Val = uint2(255.0 * saturate(0.5 * value + 0.5));
-	int2Val = int2Val & 0x000000FFu;
-	uint intVal = int2Val.x | (int2Val.y << 8);
-	return intVal;
-}
-
-uint ConvertFloat3ToSNorm3(float3 value)
-{
-	uint3 int3Val = uint3(255.0 * saturate(0.5 * value + 0.5));
-	int3Val = int3Val & 0x000000FFu;
-	uint intVal = int3Val.x | (int3Val.y << 8) | (int3Val.z << 16);
-	return intVal;
-}
-
 uint ConvertFloat4ToSNorm4(float4 value)
 {
-	uint4 int3Val = uint4(round(255.0 * saturate(0.5 * value + 0.5)));
-	//int3Val = int3Val & 0x000000FFu;
-	uint intVal = int3Val.x | (int3Val.y << 8) | (int3Val.z << 16) | (int3Val.w << 24);
-	return intVal;
+	int4 valueSign = sign(value);
+	int4 intVal = int4(round(clamp(value, -1.0, 1.0) * 127.0)) * 0x1000000; // multiply by 2^24 to shift the non-sign bits 24 bits to the right, so we have an 8 bit signed int at the end of the 32-bit int
+	uint4 uintVal = asuint(intVal);
+	uint composite = uintVal.x >> 24 | (uintVal.y >> 16) | (uintVal.z >> 8) | (uintVal.w);
+	return composite;
 }
 
 // Half to Float --------------------------------------------------------------
 
-float2 ConvertHalf2toFloat2(uint packedValue)
-{
-	uint2 unpackedInt = uint2(packedValue, packedValue >> 16);
-	return f16tof32(unpackedInt);
-}
-
-float3 ConvertHalf3toFloat3(uint2 packedValue)
-{
-	uint3 unpackedInt = uint3(packedValue.x, packedValue.x >> 16, packedValue.y);
-	return f16tof32(unpackedInt);
-}
 
 float4 ConvertHalf4toFloat4(uint2 packedValue)
 {
@@ -204,18 +122,6 @@ float4 ConvertHalf4toFloat4(uint2 packedValue)
 
 // Float to Half --------------------------------------------------------------
 
-uint ConvertFloat2ToHalf2(float2 value)
-{
-	uint2 halfInt = f32tof16(value);
-	return (halfInt.x | (halfInt.y << 16));
-}
-
-uint2 ConvertFloat3ToHalf3(float3 value)
-{
-	uint3 halfInt = f32tof16(value);
-	return uint2(halfInt.x | (halfInt.y << 16), halfInt.z);
-}
-
 uint2 ConvertFloat4ToHalf4(float4 value)
 {
 	uint4 halfInt = f32tof16(value);
@@ -224,50 +130,12 @@ uint2 ConvertFloat4ToHalf4(float4 value)
 
 // Write To Buffer --------------------------------------------------------------
 
-// Write a unorm or snorm to the buffer
-void WriteByte(uint value, uint adr, const RWByteAddressBuffer buffer)
-{
-	//uint dummy;
-	//buffer.InterlockedAnd(adr, 0xffffff00u, dummy);
-	//buffer.InterlockedOr(adr, 0x000000ffu & value, dummy);
-	uint outValue = buffer.Load(adr);
-	outValue = (outValue & 0xffffff00u) | (value & 0x000000ffu);
-	buffer.Store(adr, outValue);
-}
 
-// write a half, short, unorm2, or snorm2 to the buffer
-void Write2Bytes(uint value, uint adr, const RWByteAddressBuffer buffer)
-{
-	//uint dummy;
-	//buffer.InterlockedAnd(adr, 0xffff0000u, dummy);
-	//buffer.InterlockedOr(adr, 0x0000ffffu & value, dummy);
-	uint outValue = buffer.Load(adr);
-	outValue = (outValue & 0xffff0000u) | (value & 0x0000ffffu);
-	buffer.Store(adr, outValue);
-}
-
-// write a unorm3 or snorm3 to the buffer
-void Write3Bytes(uint value, uint adr, const RWByteAddressBuffer buffer)
-{
-	//uint dummy;
-	//buffer.InterlockedAnd(adr, 0xff000000u, dummy);
-	//buffer.InterlockedOr(adr, 0x00ffffffu & value, dummy);
-	uint outValue = buffer.Load(adr);
-	outValue = (outValue & 0xffff0000u) | (value & 0x0000ffffu);
-	buffer.Store(adr, outValue);
-}
 
 // Write a float, int, half2, short2, unorm4, or snorm4 to the buffer
 void Write4Bytes(uint value, uint adr, const RWByteAddressBuffer buffer)
 {
 	buffer.Store(adr, value);
-}
-
-// write a half3 or short3 to the buffer
-void Write6Bytes(const uint2 value, const uint adr, const RWByteAddressBuffer buffer)
-{
-	buffer.Store(adr, value[0]);
-	Write2Bytes(value[1], adr + 4, buffer);
 }
 
 // write a float2, int2, half4 or short4 to the buffer
@@ -445,9 +313,13 @@ void WriteNormalChannel(uint inPackedInfo, uint outPackedInfo, uint vertInAdr, u
 	  
 		// Transform to world space using the appropriate method for normals, but don't bother normalizing the normal. The shader is going to do that anyways, and this ensures the rendering behavior of the combined mesh matches the indiviudal mesh 
 		normal = mul(normal, (float3x3) WorldToObject);
-	   
+
 		
 		uint outFmt = GetFormat(outPackedInfo);
+		if (outFmt == FORMAT_SNORM)
+		{
+			normal = normalize(normal);
+		}
 		outFmt = clamp(outFmt, FORMAT_SNORM, FORMAT_FLOAT);
 		rawData = ConvertFloatToRaw(float4(normal.xyz, 0), outFmt);
 		uint outAddress = vertOutAdr + GetOffset(outPackedInfo);
@@ -470,10 +342,14 @@ void WriteTangentChannel(uint inPackedInfo, uint outPackedInfo, uint vertInAdr, 
 	  
 		// Transform to world space, and flip the direction if the mesh is scaled negatively. 
 		tangent.xyz = mul((float3x3) ObjectToWorld, tangent.xyz);
-		tangent.w *= offset_strideIn_TanSign.z;
+		tangent.w *= offset_strideIn_TanSign.z < 0 ? -1 : 1;
 		
 		uint outFmt = GetFormat(outPackedInfo);
 		outFmt = clamp(outFmt, FORMAT_SNORM, FORMAT_FLOAT);
+		if (outFmt == FORMAT_SNORM)
+		{
+			tangent.xyz = normalize(tangent.xyz);
+		}
 		rawData = ConvertFloatToRaw(tangent, outFmt);
 		uint outAddress = vertOutAdr + GetOffset(outPackedInfo);
 		//uint inByteEnum = clamp(GetByteCountEnum(inPackedInfo), BYTECOUNT_4, BYTECOUNT_16); //always 4 components, can be snorm to float
