@@ -283,20 +283,14 @@ uint4 ConvertFloatToRaw(const float4 value, uint format)
 
 void WritePositionChannel(const uint inPackedInfo, const uint outPackedInfo, const uint vertInAdr, const uint vertOutAdr)
 {
-	uint address = vertInAdr; // + (inPackedInfo & 0x000000ffu); // The vertex position should always be at the start of the struct, don't bother adding the offset
+	uint address = vertInAdr; // The vertex position should always be at the start of the struct, don't bother adding the offset
 	uint4 rawData = vertIn.Load4(address);
 	uint inFmt = GetFormat(inPackedInfo);
-	// Out format will always be float32x3. Period. Half-precision isn't accurate enough for a world-centered combined mesh, 
-	// uint outFmt = (outPackedInfo >> 12) & 0x0000000fu; 
-  //inFmt = clamp(inFmt, FORMAT_HALF, FORMAT_FLOAT); // Hint to the compiler that this will always be float or half. 
-	// I don't think I've ever seen a mesh with half precision positions, although its technically possible. So convert anyways
 	float4 position = ConvertRawToFloat(rawData, inFmt);
 	position.w = 1;
 	position = mul(ObjectToWorld, position);
 	rawData = asuint(position);
-	uint outAddress = vertOutAdr; // + (outPackedInfo & 0x000000ffu);  // The vertex position should always be at the start of the struct, don't bother adding the offset
-
-	//uint inByteEnum = BYTECOUNT_12; //GetByteCountEnum(inPackedInfo); input will always a dimension of 3, and output will always be float32
+	uint outAddress = vertOutAdr; // The vertex position should always be at the start of the struct, don't bother adding the offset
 	WriteValueVtx(vertOut, outAddress, FORMAT_FLOAT, 3, rawData);
 }
 
@@ -314,7 +308,6 @@ void WriteNormalChannel(uint inPackedInfo, uint outPackedInfo, uint vertInAdr, u
 		// Transform to world space using the appropriate method for normals, but don't bother normalizing the normal. The shader is going to do that anyways, and this ensures the rendering behavior of the combined mesh matches the indiviudal mesh 
 		normal = mul(normal, (float3x3) WorldToObject);
 
-		
 		uint outFmt = GetFormat(outPackedInfo);
 		if (outFmt == FORMAT_SNORM)
 		{

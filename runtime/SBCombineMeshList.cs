@@ -17,7 +17,7 @@ using static UnityEngine.Mesh;
 using Unity.Profiling;
 using System.Runtime.CompilerServices;
 using UnityEditor.PackageManager.Requests;
-
+using UnityEngine.Assertions;
 
 namespace SLZ.CustomStaticBatching
 {
@@ -38,30 +38,6 @@ namespace SLZ.CustomStaticBatching
 
 		public ComputeShader transferVtxBufferCompute;
 
-		/// <summary>
-		/// Bit-packed information about a single channel in a vertex buffer. Maps to a single UInt, needs to be kept in sync with the compute shader
-		/// used for transfering and converting vertex buffers of each mesh into the combined mesh.
-		/// </summary>
-
-		[StructLayout(LayoutKind.Explicit, Size = 4)]
-		public struct PackedChannel
-		{
-			[FieldOffset(0)]
-			public UInt32 packedData;
-			[FieldOffset(0)]
-			public byte dimension;
-			[FieldOffset(1)]
-			public byte format;
-			[FieldOffset(2)]
-			public byte offset;
-			[FieldOffset(3)]
-			public byte unused;
-
-			public override string ToString()
-			{
-				return string.Format("Dimension {0}, Format {1}, Offset {2}, Packed: 0x{3}", (int)dimension, (int)format, (int)offset, packedData.ToString("X8"));
-			}
-		}
 
 		/// <summary>
 		/// Supported vertex formats. This is hard-coded into the compute shader used for combining, so don't just go adding formats to this list!
@@ -297,7 +273,7 @@ namespace SLZ.CustomStaticBatching
 			}
 		}
 
-
+		[BurstCompile]
 		struct GetRendererNegativeScale : IJobParallelFor
 		{
 			[WriteOnly]
@@ -493,7 +469,7 @@ namespace SLZ.CustomStaticBatching
 			//int reverseWindingPtr = 0;
 			//NativeArray<int2> ReverseWindingIdxRanges = new NativeArray<int2>(submeshCount, Allocator.TempJob);
 
-			bool[] negativeScale = new bool[rendererCount];
+			//bool[] negativeScale = new bool[rendererCount];
 
 			NativeArray<Bounds> submeshBounds = new NativeArray<Bounds>(submeshCount, Allocator.TempJob);
 			NativeArray<float4x4> rendererObject2World = new NativeArray<float4x4>(rendererCount, Allocator.TempJob);
@@ -828,6 +804,90 @@ namespace SLZ.CustomStaticBatching
 			AsyncMeshReadbackData readbackInfo = new AsyncMeshReadbackData() { request = request, gpuBuffer = combinedMeshBuffer, cpuBuffer = bufferBytes };
 
 			return readbackInfo;
+		}
+
+		internal void JobCopyMeshes(ref NativeArray<PackedChannel> meshPackedChannels, ref NativeArray<PackedChannel> combinedPackedChannels, ref NativeArray<byte> rendererScaleSign, Mesh combinedMesh,
+	RendererData[] rd, int2 rendererRange, int[] renderer2Mesh, ref NativeArray<byte> invalidMeshes, MeshDataArray meshList)
+		{
+			// Figure out what lightmaps are potentially present in the combined mesh.
+			// If either UV1 or UV2 are in the combined mesh, but not in an input mesh,
+			// then we need to instruct the job to copy the previous UV channel with a
+			// dimension > 0 to that channel
+			bool hasLightmap = combinedPackedChannels[5].dimension > 0;
+			bool hasDynLightmap = combinedPackedChannels[6].dimension > 0;
+
+		
+			int combinedStride = combinedMesh.GetVertexBufferStride(0);
+			NativeArray<byte> combinedMeshVert = new NativeArray<byte>(combinedStride * combinedMesh.vertexCount, Allocator.TempJob);
+
+			int4 strideOut = new int4(combinedStride, 0, 0, 0);
+			
+			int combinedMeshCopyIndex = 0;
+			int numMeshesCopied = 0;
+
+			FixedList32Bytes<uint> formatToBytes = new FixedList32Bytes<uint>() { 1, 1, 1, 2, 4 };
+
+			NativeArray<PackedChannel> meshPackedChannels2 = new NativeArray<PackedChannel>(NUM_VTX_CHANNELS, Allocator.TempJob);
+			for (int renderer = rendererRange.x; renderer < rendererRange.y; renderer++)
+			{
+
+				int meshIdx = renderer2Mesh[renderer];
+				if (invalidMeshes[meshIdx] == 0)
+				{
+					int stride = meshList[meshIdx].GetVertexBufferStride(0);
+					//Debug.Log("single Mesh Stride = " + stride);
+					int tanSign = rendererScaleSign[renderer] > 0 ? 1 : -1;
+					NativeArray<PackedChannel>.Copy(meshPackedChannels, NUM_VTX_CHANNELS * meshIdx, meshPackedChannels2, 0, NUM_VTX_CHANNELS);
+					for (int i = 0; i < NUM_VTX_CHANNELS; i++)
+					{
+						Debug.Assert(meshPackedChannels2[i].offset % 4 == 0, "offset not aligned on 4 bytes, failure!");
+					}
+					// Handle lightmapped meshes where uv0 is being used as the lightmap UV. Set UV1's packed data to be UV0's so it just copies UV0 to UV1
+					// Also handle the dynamic lightmap. If UV2 is missing and there's no UV2 in the output, its using UV1 
+					bool missingLM = hasLightmap && meshPackedChannels2[5].dimension == 0;
+					bool missingDynLM = hasDynLightmap && meshPackedChannels2[6].dimension == 0;
+
+					if (missingLM || missingDynLM)
+					{
+
+						if (missingLM)
+						{
+							meshPackedChannels2[5] = meshPackedChannels2[4];
+						}
+						if (missingDynLM)
+						{
+							meshPackedChannels2[6] = meshPackedChannels2[5].dimension == 0 ? meshPackedChannels2[4] : meshPackedChannels2[5];
+						}
+					}
+
+					TransferVtxBuffer vtxJob = new TransferVtxBuffer
+					{
+						vertIn = meshList[meshIdx].GetVertexData<byte>(0),
+						vertOut = combinedMeshVert,
+						ObjectToWorld = rd[renderer].rendererTransform.localToWorldMatrix,
+						WorldToObject = rd[renderer].rendererTransform.worldToLocalMatrix,
+						lightmapScaleOffset = new float4(rd[renderer].meshRenderer.lightmapScaleOffset),
+						dynLightmapScaleOffset = new float4(rd[renderer].meshRenderer.realtimeLightmapScaleOffset),
+						offset_strideIn_TanSign = new int4(combinedMeshCopyIndex, stride, tanSign, 0),
+						inPackedChannelInfo = meshPackedChannels2,
+						strideOut = strideOut,
+						outPackedChannelInfo = combinedPackedChannels,
+						formatToBytes = formatToBytes,
+					};
+					int vertexCount = meshList[meshIdx].vertexCount;
+					combinedMeshCopyIndex += combinedStride * vertexCount;
+
+					JobHandle vtxJobHandle = vtxJob.Schedule(vertexCount, 16);
+					vtxJobHandle.Complete();
+					vtxJob.vertIn.Dispose();
+					numMeshesCopied++;
+				}
+			}
+
+			combinedMesh.SetVertexBufferData<byte>(combinedMeshVert, 0, 0, combinedMeshVert.Length, 0, MeshUpdateFlags.DontValidateIndices | MeshUpdateFlags.DontRecalculateBounds | MeshUpdateFlags.DontNotifyMeshUsers | MeshUpdateFlags.DontResetBoneBounds);
+			combinedMesh.UploadMeshData(true);
+			meshPackedChannels2.Dispose();
+			combinedMeshVert.Dispose();
 		}
 
 

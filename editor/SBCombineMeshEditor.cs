@@ -1,3 +1,4 @@
+//#define USE_GPU_VTX_TRANSFER
 using System;
 using System.Collections;
 using System.Collections.Generic;
@@ -120,7 +121,7 @@ namespace SLZ.CustomStaticBatching.Editor
 		static readonly ProfilerMarker profilerGetMeshBins = new ProfilerMarker("CustomStaticBatching.GetMeshBins");
 		static readonly ProfilerMarker profilerGetCombinedLayout = new ProfilerMarker("CustomStaticBatching.GetCombinedLayout");
 		static readonly ProfilerMarker profilerGetCombinedMesh = new ProfilerMarker("CustomStaticBatching.GetCombinedMesh");
-		static readonly ProfilerMarker profilerComputeCopyMeshes = new ProfilerMarker("CustomStaticBatching.ComputeCopyMeshes");
+		static readonly ProfilerMarker profilerComputeCopyMeshes = new ProfilerMarker("CustomStaticBatching.TransferToCombinedMesh");
 		static readonly ProfilerMarker profilerAssignSBCombinedMesh = new ProfilerMarker("CustomStaticBatching.AssignSBCombinedMesh");
 		public static void GenerateStaticBatches(this SBCombineMeshList cml, RendererData[] sortedRenderers)
 		{
@@ -154,7 +155,9 @@ namespace SLZ.CustomStaticBatching.Editor
 			int numCombinedMeshes = cMeshIdxRange.Count;
 			NativeArray<PackedChannel>[] combinedMeshLayouts = new NativeArray<PackedChannel>[numCombinedMeshes];
 			Mesh[] combinedMeshes = new Mesh[numCombinedMeshes];
+#if USE_GPU_VTX_TRANSFER
 			AsyncMeshReadbackData[] combinedMeshReadbacks = new AsyncMeshReadbackData[numCombinedMeshes];
+#endif
 
 			for (int i = 0; i < numCombinedMeshes; i++)
 			{
@@ -168,7 +171,11 @@ namespace SLZ.CustomStaticBatching.Editor
 				CombinedMesh.name = "Combined Mesh (" + i + ")";
 				combinedMeshes[i] = CombinedMesh;
 				profilerComputeCopyMeshes.Begin();
+#if USE_GPU_VTX_TRANSFER
 				combinedMeshReadbacks[i] = cml.ComputeCopyMeshes(ref uniqueMeshLayout, ref combinedMeshLayouts[i], ref rendererScaleSign, CombinedMesh, sortedRenderers, cMeshIdxRange[i], renderer2Mesh, ref invalidMeshes, uniqueMeshList);
+#else
+				cml.JobCopyMeshes(ref uniqueMeshLayout, ref combinedMeshLayouts[i], ref rendererScaleSign, CombinedMesh, sortedRenderers, cMeshIdxRange[i], renderer2Mesh, ref invalidMeshes, uniqueMeshData);
+#endif
 				profilerComputeCopyMeshes.End();
 				profilerAssignSBCombinedMesh.Begin();
 				AssignSBCombinedMesh(CombinedMesh, sortedRenderers, renderer2Mesh, ref invalidMeshes, cMeshIdxRange[i]);
@@ -176,15 +183,13 @@ namespace SLZ.CustomStaticBatching.Editor
 				//combinedMeshLayouts[i].Dispose();
 			}
 			//Debug.Log(DebugMessage);
+#if USE_GPU_VTX_TRANSFER
 			for (int i = 0; i < numCombinedMeshes; i++)
 			{
 				combinedMeshReadbacks[i].FinishMeshReadback(combinedMeshes[i]);
 			}
-
+#endif
 		
-			//var mf1 = test.AddComponent<MeshFilter>();
-			//mf1.sharedMesh = CombinedMesh;
-			//var mr1 = test.AddComponent<MeshRenderer>();
 			rendererScaleSign.Dispose();
 			uniqueMeshLayout.Dispose();
 			invalidMeshes.Dispose();
