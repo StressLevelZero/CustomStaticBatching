@@ -29,7 +29,7 @@ namespace SLZ.CustomStaticBatching
 		struct HilbertIndexJob : IJobParallelFor
 		{
 			[WriteOnly]
-			public NativeArray<SortIdx> indices;
+			public NativeArray<UInt64> indices;
 			[ReadOnly]
 			public NativeArray<Vector3> positions;
 			[ReadOnly]
@@ -47,7 +47,7 @@ namespace SLZ.CustomStaticBatching
 				position = math.clamp(position, 0.0, 1.0);
 				uint3 intPos = (uint3)((position * 2097152.0d)); // 2 ^ 21
 				intPos = intPos & ((2 << 21) - 1);
-				indices[i] = new SortIdx() { hilbertIdx = GetIndex(intPos.xyz), arrayIdx = i};
+				indices[i] = GetIndex(intPos.xyz);
 			}
 		}
 
@@ -114,13 +114,13 @@ namespace SLZ.CustomStaticBatching
 			return longVal[0] | longVal[1] << 1 | longVal[2] << 2;
 		}
 
-		public static NativeArray<SortIdx> GetHilbertIndices(NativeArray<Vector3> positions, Bounds bounds)
+		public static NativeArray<UInt64> GetHilbertIndices(NativeArray<Vector3> positions, Bounds bounds, Allocator allocator)
 		{
-			return GetHilbertIndices(positions, bounds, Vector3.one);
+			return GetHilbertIndices(positions, bounds, Vector3.one, allocator);
 		}
-		public static NativeArray<SortIdx> GetHilbertIndices(NativeArray<Vector3> positions, Bounds bounds, Vector3 scale)
+		public static NativeArray<UInt64> GetHilbertIndices(NativeArray<Vector3> positions, Bounds bounds, Vector3 scale, Allocator allocator)
 		{
-			NativeArray<SortIdx> indices = new NativeArray<SortIdx>(positions.Length, Allocator.TempJob);
+			NativeArray<UInt64> indices = new NativeArray<UInt64>(positions.Length, allocator);
 			HilbertIndexJob indexJob = new HilbertIndexJob()
 			{
 				indices = indices,

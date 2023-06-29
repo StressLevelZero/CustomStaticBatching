@@ -5,6 +5,9 @@
   "unity": "2021.3",
   "displayName": "SLZ Static Batching",
   "dependencies": {
+    "com.unity.mathematics": "1.2.1",
+    "com.unity.burst": "1.8.4",
+    "com.unity.collections": "1.2.4"
   },
   "repository": {
     "type": "git",

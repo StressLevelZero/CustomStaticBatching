@@ -62,13 +62,13 @@ namespace SLZ.CustomStaticBatching.Editor
 					}
 				}
 			}
-
-			NativeArray<SortIdx> sortIdxes = HilbertIndex.GetHilbertIndices(points, new Bounds(new Vector3(8, 8, 8), new Vector3(16, 16, 16)), new Vector3(1,1.0f,1));
-			NativeSortExtension.Sort<SortIdx>(sortIdxes);
+			/*
+			NativeArray<ulong> sortIdxes = HilbertIndex.GetHilbertIndices(points, new Bounds(new Vector3(8, 8, 8), new Vector3(16, 16, 16)), new Vector3(1,1.0f,1), Allocator.TempJob);
+			//NativeSortExtension.Sort<SortIdx>(sortIdxes);
 			string message = "";
 			for (int i = 0; i < 16; i++)
 			{
-				message += sortIdxes[i].hilbertIdx.ToString() + "\n";
+				message += sortIdxes[i].ToString() + "\n";
 			}
 			Debug.Log(message);
 			GameObject lineObj = new GameObject();
@@ -81,8 +81,10 @@ namespace SLZ.CustomStaticBatching.Editor
 			{
 				lineRenderer.SetPosition(i, points[sortIdxes[i].arrayIdx]);
 			}
-			points.Dispose();
 			sortIdxes.Dispose();
+			*/
+			points.Dispose();
+			
 		}
 	}
 }
