@@ -11,11 +11,10 @@ using UnityEngine.Rendering;
 using Unity.Burst;
 using Unity.Jobs;
 using Unity.Collections.LowLevel.Unsafe;
-
+using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using static UnityEngine.Mesh;
 using Unity.Profiling;
-using System.Runtime.CompilerServices;
 using UnityEditor.PackageManager.Requests;
 using UnityEngine.Assertions;
 
@@ -28,7 +27,6 @@ namespace SLZ.CustomStaticBatching
 		public MeshFilter meshFilter;
 		public MeshRenderer meshRenderer;
 		public Transform rendererTransform;
-		public uint indexCount;
 	}
 	public class SBCombineMeshList
 	{

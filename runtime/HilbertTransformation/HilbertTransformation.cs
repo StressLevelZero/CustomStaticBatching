@@ -22,6 +22,7 @@ namespace SLZ.CustomStaticBatching
 			else return 0;
 		}
 	}
+
 	public static class HilbertIndex
 	{
 
@@ -58,6 +59,7 @@ namespace SLZ.CustomStaticBatching
 		/// <param name="boundingCoord">3d unsigned integer coordinate of the point inside of a defined bounding volume.</param>
 		/// <returns>The Hilbert index</returns>
 		[MethodImpl(MethodImplOptions.AggressiveInlining)]
+		[BurstCompatible]
 		public static UInt64 GetIndex(uint3 boundingCoord)
 		{
 			int bits = 21;
@@ -99,6 +101,7 @@ namespace SLZ.CustomStaticBatching
 		}
 
 		[MethodImpl(MethodImplOptions.AggressiveInlining)]
+		[BurstCompatible]
 		public static UInt64 Interleave63Bits(uint3 value)
 		{
 			Span<UInt64> longVal = stackalloc UInt64[3];

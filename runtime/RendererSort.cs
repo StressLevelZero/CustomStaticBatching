@@ -4,12 +4,15 @@ using System.Collections.Generic;
 using System.Reflection.Emit;
 using System.Reflection;
 using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
 using UnityEngine;
 using UnityEngine.Rendering;
 using UnityEditor;
 using Unity.Collections.LowLevel.Unsafe;
 using Unity.Collections;
 using Unity.Mathematics;
+using Unity.Jobs;
+using Unity.Profiling;
 
 namespace SLZ.CustomStaticBatching
 {
@@ -29,20 +32,21 @@ namespace SLZ.CustomStaticBatching
 	{
 		public int rendererArrayIdx;
 
-		public ushort multiMaterial; // 0 if single material, 1 otherwise
-		public ulong shaderID;
+		public ushort breakingState; // flags to bin the most important boolean properties. is multi-material in highest bit, is active in lowest
+		public int shaderID;
 		public ulong variantHash;
-		public ulong materialID;
+		public int materialID;
 		public ushort lightmapIdx;
-		public long probeId; // Pack two int IDs for the two most important probes
+		public ulong probeId; // Pack two int IDs for the two most important probes
 		public ushort zoneID;
 		public ulong hilbertIdx;
 
+		[BurstCompatible]
 		public int CompareTo(RendererSortItem other)
 		{
-			if (multiMaterial != other.multiMaterial)
+			if (breakingState != other.breakingState)
 			{
-				return multiMaterial > other.multiMaterial ? 1 : -1;
+				return breakingState > other.breakingState ? 1 : -1;
 			}
 			if (shaderID != other.shaderID)
 			{
@@ -60,10 +64,10 @@ namespace SLZ.CustomStaticBatching
 			{
 				return lightmapIdx > other.lightmapIdx ? 1 : -1;
 			}
-			if (probeId != other.probeId)
-			{
-				return probeId > other.probeId ? 1 : -1;
-			}
+			//if (probeId != other.probeId)
+			//{
+			//	return probeId > other.probeId ? 1 : -1;
+			//}
 			if (zoneID != other.zoneID)
 			{
 				return zoneID > other.zoneID ? 1 : -1;
@@ -189,14 +193,67 @@ namespace SLZ.CustomStaticBatching
 
 	public class RendererSort
 	{
-		public void Sort(List<MeshRenderer> meshRenderers)
+		static readonly ProfilerMarker profileSortRenderers = new ProfilerMarker("CustomStaticBatching.SortRenderers");
+		public static RendererData[] GetSortedData(List<MeshRenderer> meshRenderers, List<MeshFilter> filters)
 		{
-			
+			profileSortRenderers.Begin();
+			int[] rendererToMaterial;
+			Material[] uniqueMats;
+			GetUniqueMaterials(meshRenderers, out rendererToMaterial, out uniqueMats);
+			MaterialAndShaderID[] matShaderIds = GetMaterialAndShaderIDs(uniqueMats, rendererToMaterial);
+			NativeArray<UInt64> hilbertIdxs = GetHilbertIdxs(meshRenderers);
+			int numRenderers = meshRenderers.Count;
+			NativeArray<RendererSortItem> rendererSortItems = new NativeArray<RendererSortItem>(numRenderers, Allocator.TempJob);
+			List<ReflectionProbeBlendInfo> closestProbes = new List<ReflectionProbeBlendInfo> ();
+			for (int i = 0; i < numRenderers; i++)
+			{
+				MeshRenderer mr = meshRenderers[i];
+				int materialIdx = rendererToMaterial[i];
+				mr.GetClosestReflectionProbes(closestProbes);
+				int numClosest = closestProbes.Count;
+				ReadOnlySpan<int> probeHash = stackalloc int[2] { 
+					numClosest > 1 ? closestProbes[1].probe.GetHashCode() : -0x7fffffff,
+					numClosest > 0 ? closestProbes[0].probe.GetHashCode() : -0x7fffffff}; // Assumes little-endian
+				closestProbes.Clear();
+				ushort breakingState = (ushort)((mr.sharedMaterials.Length > 1 ? 0x4000u : 0u) + (mr.gameObject.activeInHierarchy && mr.enabled ? 0u : 1u));
+				rendererSortItems[i] = new RendererSortItem
+				{
+					rendererArrayIdx = i,
+					breakingState = breakingState, // 0 if single material, 1 otherwise
+					shaderID = matShaderIds[materialIdx].shaderID,
+					variantHash = matShaderIds[materialIdx].keywordHash,
+					materialID = matShaderIds[materialIdx].materialID,
+					lightmapIdx = (ushort)mr.lightmapIndex,
+					probeId = MemoryMarshal.Cast<int, ulong>(probeHash)[0], // Pack two int IDs for the two most important probes
+					zoneID = 0,
+					hilbertIdx = hilbertIdxs[i]
+				};
+			}
+			hilbertIdxs.Dispose();
+			var sortJob = NativeSortExtension.SortJob(rendererSortItems);
+			JobHandle sortJobHandle = sortJob.Schedule();
+			sortJobHandle.Complete();
+			RendererData[] rendererData = new RendererData[numRenderers];
+			for (int i = 0; i < numRenderers; i++)
+			{
+				int rendererIdx = rendererSortItems[i].rendererArrayIdx;
+				MeshFilter filter = filters[rendererIdx];
+				rendererData[i] = new RendererData
+				{
+					mesh = filter.sharedMesh,
+					meshFilter = filter,
+					meshRenderer = meshRenderers[rendererIdx],
+					rendererTransform = filter.transform
+				};
+			}
+			rendererSortItems.Dispose();
+			profileSortRenderers.End();
+			return rendererData;
 		}
 
 
 
-		void GetUniqueMaterials(List<MeshRenderer> meshRenderers, out int[] rendererToMaterial, out Material[] uniqueMats)
+		static void GetUniqueMaterials(List<MeshRenderer> meshRenderers, out int[] rendererToMaterial, out Material[] uniqueMats)
 		{
 			Dictionary<Material, int> matToIdx = new Dictionary<Material, int>();
 			List<Material> uniqueMatList = new List<Material>();
@@ -225,7 +282,7 @@ namespace SLZ.CustomStaticBatching
 			public int materialID;
 			public ulong keywordHash;
 		}
-		MaterialAndShaderID[] GetMaterialAndShaderIDs(List<MeshRenderer> meshRenderers, Material[] uniqueMats, int[] rendererToMaterial)
+		static MaterialAndShaderID[] GetMaterialAndShaderIDs(Material[] uniqueMats, int[] rendererToMaterial)
 		{
 			int matLength = uniqueMats.Length;
 			MaterialAndShaderID[] matShaderIDs = new MaterialAndShaderID[matLength];
@@ -242,7 +299,7 @@ namespace SLZ.CustomStaticBatching
 			return matShaderIDs;
 		}
 
-		NativeArray<UInt64> GetHilbertIdxs(List<MeshRenderer> meshRenderers)
+		static NativeArray<UInt64> GetHilbertIdxs(List<MeshRenderer> meshRenderers)
 		{
 			int length = meshRenderers.Count;
 			NativeArray<Vector3> positions = new NativeArray<Vector3>(length, Allocator.TempJob);
@@ -254,8 +311,11 @@ namespace SLZ.CustomStaticBatching
 				hilbertBounds.Encapsulate(bounds);
 			}
 			float maxDim = math.max(math.max(hilbertBounds.extents.x, hilbertBounds.extents.y), hilbertBounds.extents.z);
+			Vector3 minExtent = hilbertBounds.center - hilbertBounds.extents;
 			hilbertBounds.extents = new Vector3(maxDim, maxDim, maxDim);
+			hilbertBounds.center = minExtent + hilbertBounds.extents;
 			NativeArray<UInt64> hilbertIdxs = HilbertIndex.GetHilbertIndices(positions, hilbertBounds, Allocator.TempJob);
+			positions.Dispose();
 			return hilbertIdxs;
 		}
 
