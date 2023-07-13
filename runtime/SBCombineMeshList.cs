@@ -17,6 +17,7 @@ using static UnityEngine.Mesh;
 using Unity.Profiling;
 using UnityEditor.PackageManager.Requests;
 using UnityEngine.Assertions;
+using static SLZ.CustomStaticBatching.PackedChannel;
 
 namespace SLZ.CustomStaticBatching
 {
@@ -28,32 +29,16 @@ namespace SLZ.CustomStaticBatching
 		public MeshRenderer meshRenderer;
 		public Transform rendererTransform;
 	}
+
+
 	public class SBCombineMeshList
 	{
-		public const int NUM_VTX_CHANNELS = 12;
+		
 
 		public VtxFormats[] vertexFormatCompression;
 
 		public ComputeShader transferVtxBufferCompute;
 
-
-		/// <summary>
-		/// Supported vertex formats. This is hard-coded into the compute shader used for combining, so don't just go adding formats to this list!
-		/// Only commonly used floating point formats are here. There's no logical way to choose a format for the combined mesh's channels if the 
-		/// channel is integer on one mesh and floating point on another. Which format do you choose? Cast int to float or treat the bytes of the 
-		/// int as a float? You can losslessly store the bytes of an int32 in a float, but it'll get garbled if the output channel is compressed
-		/// to half. Also what if the int is less than 32 bits? You can't put a short or char into a half or unorm, as those will get converted to
-		/// float by the GPU. I'm not supporting 16 bit normalized formats to cut down on shader complexity. Just use half precision instead.
-		/// These need to be in order of increasing precision such that each format can be safely contained in the next format.
-		/// </summary>
-		public enum VtxFormats : byte
-		{
-			Invalid = 0,
-			UNorm8 = 1,
-			SNorm8 = 2,
-			Float16 = 3,
-			Float32 = 4,
-		}
 
 
 
@@ -76,39 +61,123 @@ namespace SLZ.CustomStaticBatching
 		/// <param name="sortedRenderers"></param>
 		/// <param name="renderer2CMeshIdx"></param>
 		/// <param name="cMeshIdxRange"></param>
-		public void GetCombinedMeshBins16(RendererData[] sortedRenderers, int[] renderer2Mesh, NativeArray<byte> invalidMeshes, out ushort[] renderer2CMeshIdx, out List<int2> cMeshIdxRange)
+		public void GetCombinedMeshBins16(RendererData[] sortedRenderers, int renderersLength, int[] renderer2Mesh, out ushort[] renderer2CMeshIdx, out List<int2> cMeshIdxRange)
 		{
 			// bin the sorted renderers into groups containing less than 2^16 verticies
-			renderer2CMeshIdx = new ushort[sortedRenderers.Length];
+			renderer2CMeshIdx = new ushort[renderersLength];
 
 			int vertexCount = 0;
 			ushort currentMeshIdx = 0;
 			int meshGroupBeginIdx = 0;
 			//cMeshIdxRange = new List<int2>();
 			cMeshIdxRange = new List<int2>();
-			for (int rIdx = 0; rIdx < sortedRenderers.Length; rIdx++)
+			if (renderersLength == 0) return;
+
+			for (int rIdx = 0; rIdx < renderersLength; rIdx++)
 			{
-				if (invalidMeshes[renderer2Mesh[rIdx]] == 0)
+			
+				int meshVertexCount = sortedRenderers[rIdx].mesh.vertexCount;
+				vertexCount += meshVertexCount;
+				if (vertexCount >= 0xffff)
 				{
-					int meshVertexCount = sortedRenderers[rIdx].mesh.vertexCount;
-					vertexCount += meshVertexCount;
-					if (vertexCount >= 0xffff)
-					{
-						cMeshIdxRange.Add(new int2(meshGroupBeginIdx, rIdx));
-						currentMeshIdx++;
-						meshGroupBeginIdx = rIdx;
-						vertexCount = meshVertexCount;
-					}
-					renderer2CMeshIdx[rIdx] = currentMeshIdx;
+					cMeshIdxRange.Add(new int2(meshGroupBeginIdx, rIdx));
+					currentMeshIdx++;
+					meshGroupBeginIdx = rIdx;
+					vertexCount = meshVertexCount;
 				}
-				else
-				{
-					renderer2CMeshIdx[rIdx] = (ushort)0xffffu;
-				}
+				renderer2CMeshIdx[rIdx] = currentMeshIdx;
+			
 			}
-			if (meshGroupBeginIdx == 0 || meshGroupBeginIdx != (sortedRenderers.Length - 1))
+			if (meshGroupBeginIdx == 0 || meshGroupBeginIdx < (renderersLength - 1))
 			{
-				cMeshIdxRange.Add(new int2(meshGroupBeginIdx, sortedRenderers.Length));
+				cMeshIdxRange.Add(new int2(meshGroupBeginIdx, renderersLength));
+			}
+		}
+
+		/// <summary>
+		/// Takes an array of pre-sorted renderers, and bins them into chunks of <65535 verticies, until it hits the first mesh that needs a 32 bit index buffer.
+		/// After that point it bins into max32Verts sized bins. Assumes that the renderer array has been sorted such that 32 bit index meshes are all at the end of the array.
+		/// </summary>
+		/// <param name="sortedRenderers">Sorted list of renderer data</param>
+		/// <param name="renderersLength">Range of valid renderers in the sortedRenderers array, starting from 0</param>
+		/// <param name="max32Verts">The maximum number of vertices that can be in a 32-bit index buffer combined mesh. Since a 32-bit index buffer can represent trillions of vertices, its a good idea to arbitrarily put a cap on how large the combined mesh can be</param>
+		/// <param name="renderer2CMeshIdx">Output array that maps each item in the renderer list to the index of the combined mesh it will be a part of</param>
+		/// <param name="cMeshIdxRange">Output list of [start, end) index ranges in the sorted renderer list, where each item represents a group of renderers that will be combined</param>
+		/// <param name="largeIdxBinStart">Output index in cMeshIdxRange where 32-bit index meshes start</param>
+		public void GetCombinedMeshBins(
+			RendererData[] sortedRenderers, 
+			int renderersLength, 
+			int max32Verts, 
+			out ushort[] renderer2CMeshIdx, 
+			out List<int2> cMeshIdxRange, 
+			out int largeIdxBinStart)
+		{
+			// bin the sorted renderers into groups containing less than 2^16 verticies
+			renderer2CMeshIdx = new ushort[renderersLength];
+
+			int vertexCount = 0;
+			ushort currentMeshIdx = 0;
+			int meshGroupBeginIdx = 0;
+			//cMeshIdxRange = new List<int2>();
+			cMeshIdxRange = new List<int2>();
+			if (renderersLength == 0)
+			{
+				largeIdxBinStart = 0; 
+				return;
+			}
+			int rIdx = 0;
+			for (; rIdx < renderersLength; rIdx++)
+			{
+				Mesh m = sortedRenderers[rIdx].mesh;
+				if (m.indexFormat == IndexFormat.UInt32)
+				{
+					break;
+				}
+				int meshVertexCount = m.vertexCount;
+				vertexCount += meshVertexCount;
+				if (vertexCount >= 0xffff)
+				{
+					cMeshIdxRange.Add(new int2(meshGroupBeginIdx, rIdx));
+					currentMeshIdx++;
+					meshGroupBeginIdx = rIdx;
+					vertexCount = meshVertexCount;
+				}
+				renderer2CMeshIdx[rIdx] = currentMeshIdx;
+
+			}
+			// if the loop ended in the middle of filling a bin, add a bin from the end of the last bin to the last renderer index before the loop ended
+			if ((meshGroupBeginIdx == 0 && rIdx > 0) || meshGroupBeginIdx < rIdx - 1)
+			{
+				cMeshIdxRange.Add(new int2(meshGroupBeginIdx, rIdx));
+				currentMeshIdx++;
+			}
+			meshGroupBeginIdx = rIdx;
+			vertexCount = 0;
+			
+
+			int largeIdxStart = rIdx;
+			largeIdxBinStart = cMeshIdxRange.Count;
+			
+
+			for (; rIdx < renderersLength; rIdx++)
+			{
+				Mesh m = sortedRenderers[rIdx].mesh;
+
+				int meshVertexCount = m.vertexCount;
+				vertexCount += meshVertexCount;
+				if (vertexCount >= max32Verts)
+				{
+					cMeshIdxRange.Add(new int2(meshGroupBeginIdx, rIdx));
+					currentMeshIdx++;
+					meshGroupBeginIdx = rIdx;
+					vertexCount = meshVertexCount;
+				}
+				renderer2CMeshIdx[rIdx] = currentMeshIdx;
+			}
+
+			if ((meshGroupBeginIdx == largeIdxStart && rIdx > largeIdxStart) || meshGroupBeginIdx < renderersLength - 1)
+			{
+				cMeshIdxRange.Add(new int2(meshGroupBeginIdx, renderersLength));
 			}
 		}
 
@@ -159,10 +228,12 @@ namespace SLZ.CustomStaticBatching
 
 
 
-		static readonly byte[] VtxFmtToBytes = new byte[5] { 0, 1, 1, 2, 4 };
+
 
 		/// <summary>
-		/// Gets packed channel information for each of the 12 possible channels of the vertex struct for each mesh in the list.
+		/// Gets packed channel information for each of the 12 possible channels of the vertex struct for each mesh in the input list.
+		/// Also determines if the mesh's layout is compatible for merging, and marks bad meshes with strange vertex 
+		/// attribute formats that can't losslessly be converted to floating point (like integer formats)
 		/// </summary>
 		/// <param name="meshList">List of meshes to get the channel information of</param>
 		/// <param name="meshChannels">output array of packed channel information. The index of each element divided by 12 is the index of the mesh it corresponds to</param>
@@ -172,8 +243,8 @@ namespace SLZ.CustomStaticBatching
 			int numMeshes = meshList.Count;
 			meshChannels = new NativeArray<PackedChannel>(NUM_VTX_CHANNELS * numMeshes, Allocator.Temp);
 			invalidMeshes = new NativeArray<byte>(numMeshes, Allocator.Temp);
-			Span<byte> vtxFmtLUT = stackalloc byte[NUM_VTX_CHANNELS];
-			for (int i = 0; i < NUM_VTX_CHANNELS; i++) vtxFmtLUT[i] = (byte)VtxFormats.Invalid; // 0 represents an invalid format
+			Span<byte> vtxFmtLUT = stackalloc byte[16]; // currently there are 12 VertexAttributeFormat enum values from 0 to 11. If this ever changes, this could break!
+			for (int i = 0; i < 16; i++) vtxFmtLUT[i] = (byte)VtxFormats.Invalid; // 0 represents an invalid format
 			vtxFmtLUT[(int)VertexAttributeFormat.Float32] = (byte)VtxFormats.Float32;
 			vtxFmtLUT[(int)VertexAttributeFormat.Float16] = (byte)VtxFormats.Float16;
 			vtxFmtLUT[(int)VertexAttributeFormat.SNorm8] = (byte)VtxFormats.SNorm8;
@@ -181,22 +252,23 @@ namespace SLZ.CustomStaticBatching
 			for (int i = 0; i < numMeshes; i++)
 			{
 				int baseIdx = NUM_VTX_CHANNELS * i;
-				bool meshIsInvalid = false;
+				Mesh data = meshList[i];
+				bool meshIsInvalid = !data.HasVertexAttribute(VertexAttribute.Position) || data.vertexBufferCount > 2; // Only support 2 streams for now
+
 				for (int channel = 0; channel < NUM_VTX_CHANNELS; channel++)
 				{
-					bool hasChannel = meshList[i].HasVertexAttribute((VertexAttribute)channel);
-					if (hasChannel)
+					bool hasAttribute = data.HasVertexAttribute((VertexAttribute)channel);
+					VertexAttribute attribute = (VertexAttribute)channel;
+					if (hasAttribute)
 					{
-						byte channelFormat = vtxFmtLUT[(int)meshList[i].GetVertexAttributeFormat((VertexAttribute)channel)];
-						bool invalid = (channelFormat == (int)VtxFormats.Invalid);
-						if (invalid) Debug.LogError(meshList[i].name + " has invalid channel format for channel " + channel);
-						meshIsInvalid = meshIsInvalid || invalid;
-
+						byte channelFormat = vtxFmtLUT[(int)data.GetVertexAttributeFormat(attribute)];
+						meshIsInvalid = meshIsInvalid || (channelFormat == (int)VtxFormats.Invalid);
 						meshChannels[baseIdx + channel] = new PackedChannel
 						{
-							dimension = (byte)meshList[i].GetVertexAttributeDimension((VertexAttribute)channel),
+							dimension = (byte)data.GetVertexAttributeDimension(attribute),
 							format = channelFormat,
-							offset = (byte)meshList[i].GetVertexAttributeOffset((VertexAttribute)channel)
+							offset = (byte)data.GetVertexAttributeOffset(attribute),
+							stream = (byte)data.GetVertexAttributeStream(attribute)
 						};
 					}
 				}
@@ -207,7 +279,8 @@ namespace SLZ.CustomStaticBatching
 
 		/// <summary>
 		/// Gets packed channel information for each of the 12 possible channels of the vertex struct for each mesh in the input list,
-		/// doing so using parallel jobs.
+		/// doing so using parallel jobs. Also determines if the mesh's layout is compatible for merging, and flags bad meshes with more than 2 vertex streams 
+		/// that contain vertex attributes with strange formats that can't losslessly be converted to floating point (like integer formats)
 		/// </summary>
 		/// <param name="meshDataArray">Array of mesh data to get the channel information of</param>
 		/// <param name="meshChannels">output array of packed channel information. The index of each element divided by 12 is the index of the mesh it corresponds to</param>
@@ -216,8 +289,8 @@ namespace SLZ.CustomStaticBatching
 		{
 			meshChannels = new NativeArray<PackedChannel>(NUM_VTX_CHANNELS * meshDataArray.Length, Allocator.Persistent);
 			invalidMeshes = new NativeArray<byte>(meshDataArray.Length, Allocator.TempJob);
-			NativeArray<byte> vtxFmtLUT = new NativeArray<byte>(NUM_VTX_CHANNELS, Allocator.TempJob);
-			for (int i = 0; i < NUM_VTX_CHANNELS; i++) vtxFmtLUT[i] = (byte)VtxFormats.Invalid; // 255 represents an invalid format
+			NativeArray<byte> vtxFmtLUT = new NativeArray<byte>(16, Allocator.TempJob); // currently there are 12 VertexAttributeFormat enum values from 0 to 11. If this ever changes, this could break!
+			for (int i = 0; i < 16; i++) vtxFmtLUT[i] = (byte)VtxFormats.Invalid; // 255 represents an invalid format
 			vtxFmtLUT[(int)VertexAttributeFormat.Float32] = (byte)VtxFormats.Float32;
 			vtxFmtLUT[(int)VertexAttributeFormat.Float16] = (byte)VtxFormats.Float16;
 			vtxFmtLUT[(int)VertexAttributeFormat.SNorm8] = (byte)VtxFormats.SNorm8;
@@ -230,9 +303,10 @@ namespace SLZ.CustomStaticBatching
 			vtxFmtLUT.Dispose();
 		}
 
-
-
-
+		/// <summary>
+		/// Gets the vertex struct layout of an array of meshes, and populates an array of flags that indicate if a mesh has an 
+		/// incompatible vertex attribute format or more than 2 vertex streams
+		/// </summary>
 		[BurstCompile]
 		struct GetMeshLayoutJob : IJobParallelFor
 		{
@@ -250,25 +324,73 @@ namespace SLZ.CustomStaticBatching
 			{
 				int baseIdx = NUM_VTX_CHANNELS * i;
 				MeshData data = _meshData[i];
-				bool meshIsInvalid = !data.HasVertexAttribute(VertexAttribute.Position) || data.indexFormat == IndexFormat.UInt32 || data.vertexBufferCount > 1;
+				bool meshIsInvalid = !data.HasVertexAttribute(VertexAttribute.Position) || data.vertexBufferCount > 2; // Only support 2 streams for now
 
 				for (int channel = 0; channel < NUM_VTX_CHANNELS; channel++)
 				{
-					bool hasChannel = data.HasVertexAttribute((VertexAttribute)channel);
-					if (hasChannel)
+					bool hasAttribute = data.HasVertexAttribute((VertexAttribute)channel);
+					VertexAttribute attribute = (VertexAttribute)channel;
+					if (hasAttribute)
 					{
-						byte channelFormat = _vtxFmtLUT[(int)data.GetVertexAttributeFormat((VertexAttribute)channel)];
+						byte channelFormat = _vtxFmtLUT[(int)data.GetVertexAttributeFormat(attribute)];
 						meshIsInvalid = meshIsInvalid || (channelFormat == (int)VtxFormats.Invalid);
 						_meshChannels[baseIdx + channel] = new PackedChannel
 						{
-							dimension = (byte)data.GetVertexAttributeDimension((VertexAttribute)channel),
+							dimension = (byte)data.GetVertexAttributeDimension(attribute),
 							format = channelFormat,
-							offset = (byte)data.GetVertexAttributeOffset((VertexAttribute)channel)
+							offset = (byte)data.GetVertexAttributeOffset(attribute),
+							stream = (byte)data.GetVertexAttributeStream(attribute)
 						};
 					}
 				}
 				_invalidMeshes[i] = meshIsInvalid ? (byte)1 : (byte)0;
 			}
+		}
+
+		/// <summary>
+		/// Cleans the renderer array of renderers whose mesh that can't be combined other meshes, moving all the valid meshes to the front of the array.
+		/// Does not resize the array, instead returns the number of vaild renderers which should be used in place of renderers.length
+		/// </summary>
+		/// <param name="invalidMeshes"></param>
+		/// <param name="renderers"></param>
+		/// <param name="renderer2Mesh"></param>
+		/// <returns>The number of valid meshes in the array</returns>
+		internal int CleanInvalidRenderers(NativeArray<byte> invalidMeshes, RendererData[] renderers, int[] renderer2Mesh)
+		{
+			int numRenderers = renderers.Length;
+			int p = 0;
+			for (int i = 0; i < numRenderers; i++)
+			{
+				if (invalidMeshes[renderer2Mesh[i]] == 0)
+				{
+					renderers[p] = renderers[i];
+					renderer2Mesh[p] = renderer2Mesh[i];
+					p++;
+				}
+			}
+			return p;
+		}
+
+
+		/// <summary>
+		/// Gets the sign of the scale of each renderer. Used to determine if the winding order of a renderer needs to be flipped in the combined mesh,
+		/// and to set the sign of the tangent's 4th component for each vertex
+		/// </summary>
+		/// <param name="rd"></param>
+		/// <returns></returns>
+		internal NativeArray<byte> GetRendererScaleSign(RendererData[] rd)
+		{
+			NativeArray<byte> scaleSign = new NativeArray<byte>(rd.Length, Allocator.TempJob);
+			NativeArray<float3x3> object2World = new NativeArray<float3x3>(rd.Length, Allocator.TempJob);
+			for (int i = 0; i < rd.Length; i++)
+			{
+				object2World[i] = (float3x3)((float4x4)rd[i].rendererTransform.localToWorldMatrix);
+			}
+			GetRendererNegativeScale scaleJob = new GetRendererNegativeScale() { isNegativeScale = scaleSign, object2World = object2World };
+			JobHandle scaleJh = scaleJob.Schedule(rd.Length, 16);
+			scaleJh.Complete();
+			object2World.Dispose();
+			return scaleSign;
 		}
 
 		[BurstCompile]
@@ -287,21 +409,6 @@ namespace SLZ.CustomStaticBatching
 			}
 		}
 
-		internal NativeArray<byte> GetRendererScaleSign(RendererData[] rd)
-		{
-			NativeArray<byte> scaleSign = new NativeArray<byte>(rd.Length, Allocator.TempJob);
-			NativeArray<float3x3> object2World = new NativeArray<float3x3>(rd.Length, Allocator.TempJob);
-			for (int i = 0; i < rd.Length; i++)
-			{
-				object2World[i] = (float3x3)((float4x4)rd[i].rendererTransform.localToWorldMatrix);
-			}
-			GetRendererNegativeScale scaleJob = new GetRendererNegativeScale() { isNegativeScale = scaleSign, object2World = object2World };
-			JobHandle scaleJh = scaleJob.Schedule(rd.Length, 16);
-			scaleJh.Complete();
-			object2World.Dispose();
-			return scaleSign;
-		}
-
 		struct UniqueMeshData
 		{
 			public int[] renderer2Mesh;
@@ -311,7 +418,6 @@ namespace SLZ.CustomStaticBatching
 		internal NativeArray<PackedChannel> GetCombinedMeshLayout(
 			RendererData[] renderers,
 			ref NativeArray<PackedChannel> meshChannels,
-			ref NativeArray<byte> invalidMeshes,
 			int[] renderer2Mesh,
 			int startIdx, int endIdx)
 		{
@@ -326,7 +432,7 @@ namespace SLZ.CustomStaticBatching
 			{
 				int index = renderer2Mesh[i];
 				//Debug.Log("Renderer2Mesh: " + i + ":" + index);
-				if (!uniqueMeshSet.Contains(index) && invalidMeshes[index] == 0)
+				if (!uniqueMeshSet.Contains(index))
 				{
 					meshIndex.Add(index);
 					uniqueMeshSet.Add(index);
@@ -337,20 +443,12 @@ namespace SLZ.CustomStaticBatching
 					// Therefore, forcibly add UV1 to lightmapped combined meshes even if none of the input meshes have it.
 					MeshRenderer mr = renderers[i].meshRenderer;
 
-					//#if UNITY_EDITOR
-					//isLightmapped = isLightmapped || (GameObjectUtility.AreStaticEditorFlagsSet(mr.gameObject, StaticEditorFlags.ContributeGI) && mr.receiveGI == ReceiveGI.Lightmaps);
-					//#else
+					#if UNITY_EDITOR
+					isLightmapped = isLightmapped || (GameObjectUtility.AreStaticEditorFlagsSet(mr.gameObject, StaticEditorFlags.ContributeGI) && mr.receiveGI == ReceiveGI.Lightmaps);
+					#else
 					isLightmapped = isLightmapped || (mr.lightmapIndex < 0xFFFE && mr.lightmapIndex > 0);
-					if (isDynamicLightmapped)
-					{
-						Debug.Log("Is Lightmapped " + mr.lightmapIndex);
-					}
-					//#endif
+					#endif
 					isDynamicLightmapped = isDynamicLightmapped || (mr.realtimeLightmapIndex < 0xFFFE && mr.realtimeLightmapIndex > 0);
-					if (isDynamicLightmapped)
-					{
-						Debug.Log("Is Dynamic Lightmapped " + mr.realtimeLightmapIndex);
-					}
 				}
 			}
 
@@ -374,14 +472,7 @@ namespace SLZ.CustomStaticBatching
 					combinedFormat[channel] = new PackedChannel { packedData = (uint)(maxDim | (largestFmt << 8)) };
 				}
 			}
-			for (int renderer = startIdx; renderer < endIdx; renderer++)
-			{
-				int meshIdx = renderer2Mesh[renderer];
-				if (invalidMeshes[meshIdx] == 0)
-				{
 
-				}
-			}
 			// Add a lightmap UV1 if one or more of the input renderers are either static or dynamic lightmapped but none of the inputs have UV1's
 			if ((isLightmapped || isDynamicLightmapped) && combinedFormat[5].dimension == 0)
 			{
@@ -395,10 +486,11 @@ namespace SLZ.CustomStaticBatching
 			}
 
 			uint cumulativeOffset = 0;
+			ReadOnlySpan<byte> vtxFmtToBytes = PackedChannel.VtxFmtToBytes;
 			for (int channel = 0; channel < NUM_VTX_CHANNELS; channel++)
 			{
 				combinedFormat[channel] = new PackedChannel { packedData = combinedFormat[channel].packedData | (cumulativeOffset << 16) };
-				cumulativeOffset = (cumulativeOffset + (uint)VtxFmtToBytes[combinedFormat[channel].format] * combinedFormat[channel].dimension);
+				cumulativeOffset = (cumulativeOffset + (uint)vtxFmtToBytes[combinedFormat[channel].format] * combinedFormat[channel].dimension);
 			}
 			return combinedFormat;
 		}
@@ -409,35 +501,43 @@ namespace SLZ.CustomStaticBatching
 			public int[] submeshStart;
 			public int[] submeshCount;
 		}
-		internal Mesh GetCombinedMeshObject(RendererData[] rd, List<Mesh> uniqueMeshList, int2 rendererRange, int[] renderer2Mesh, ref NativeArray<byte> invalidMeshes, ref NativeArray<PackedChannel> packedChannels, ref NativeArray<byte> rendererScaleSign)
+
+		/// <summary>
+		/// Generates a Unity Mesh for a list of renderers. Generates the combined index buffer, sets the submesh descriptors, 
+		/// calculates the worldspace bounds of each submesh, and flips the winding order for negatively scaled meshes.
+		/// </summary>
+		/// <param name="rd">Sorted array of renderers</param>
+		/// <param name="uniqueMeshList">List of unique meshes used by the renderers</param>
+		/// <param name="rendererRange">Range of indices in rd that will be combined in the output mesh</param>
+		/// <param name="renderer2Mesh">A mapping from each index of rd to a mesh in uniqueMeshList</param>
+		/// <param name="packedChannels">An array of dimension NUM_VTX_CHANNELS (currently 12) that contains a description of the vertex attribute format and dimension of each possible channel in the output mesh</param>
+		/// <param name="rendererScaleSign">An array of bytes that indicates if the renderer of the corresponding index has been scaled negatively. If so, the winding order of the indices in the combined mesh must be reversed</param>
+		/// <returns></returns>
+		internal Mesh GetCombinedMeshObject<T>(RendererData[] rd, MeshDataArray uniqueMeshList, int2 rendererRange, int[] renderer2Mesh, ref NativeArray<PackedChannel> packedChannels, ref NativeArray<byte> rendererScaleSign, bool highPidxBuffer)
+		where T : unmanaged
 		{
+			Assert.IsTrue(typeof(T) == typeof(int) || typeof(T) == typeof(ushort), "GetCombinedMeshObject can only use ushort and int types!");
+			// Are we using a high-precision index buffer?
+			bool highPIdxBuffer = typeof(T) == typeof(int);
+
 			// Get the total number of vertices, submeshes, and valid renderers that make up this combined mesh
 			int vertexCount = 0;
 			int submeshCount = 0;
 			int rendererCount = 0;
 			int[] validRendererIdx = new int[rendererRange.y - rendererRange.x];
-			// Iterate once over the range of renderers, counting the number of valid renderers, and their total verticies and submeshes.
+			// Iterate once over the range of renderers, counting the total verticies and submeshes.
 			for (int i = rendererRange.x; i < rendererRange.y; i++)
 			{
-
-				if (invalidMeshes[renderer2Mesh[i]] == 0)
-				{
 					Mesh tempMesh = rd[i].mesh;
 					vertexCount += rd[i].mesh.vertexCount;
 					submeshCount += rd[i].mesh.subMeshCount;
 					validRendererIdx[rendererCount] = i;
 					rendererCount++;
-				}
 			}
-			//Debug.Log("Combined mesh vertex count " + vertexCount);
-			Span<VertexAttributeFormat> formatLUT = stackalloc VertexAttributeFormat[5] {
-				VertexAttributeFormat.UNorm8,
-				VertexAttributeFormat.UNorm8,
-				VertexAttributeFormat.SNorm8,
-				VertexAttributeFormat.Float16,
-				VertexAttributeFormat.Float32,
-			};
+		
+
 			List<VertexAttributeDescriptor> vertexAttributes = new List<VertexAttributeDescriptor>(NUM_VTX_CHANNELS);
+			ReadOnlySpan<VertexAttributeFormat> formatLUT = PackedChannel.ToUnityFormatLUT;
 			for (int i = 0; i < NUM_VTX_CHANNELS; i++)
 			{
 				if (packedChannels[i].dimension != 0)
@@ -461,18 +561,20 @@ namespace SLZ.CustomStaticBatching
 			int idxCount = 0;
 			int vtxPointer = 0;
 
+
+			// Iterate again over the renderers this time getting the submesh descriptors of all the meshes,
+			// calculating the sum of their index counts, and calculating the union of all their bounds
+
 			bool initializeBounds = true;
 			Bounds totalBounds = new Bounds();
-
-			//int reverseWindingPtr = 0;
-			//NativeArray<int2> ReverseWindingIdxRanges = new NativeArray<int2>(submeshCount, Allocator.TempJob);
-
-			//bool[] negativeScale = new bool[rendererCount];
 
 			NativeArray<Bounds> submeshBounds = new NativeArray<Bounds>(submeshCount, Allocator.TempJob);
 			NativeArray<float4x4> rendererObject2World = new NativeArray<float4x4>(rendererCount, Allocator.TempJob);
 			NativeArray<ushort> submesh2Renderer = new NativeArray<ushort>(submeshCount, Allocator.TempJob);
-			// Iterate again over the renderers, this time getting the submesh descriptors of all the meshes and calculating the bounds
+
+			// Keep track of the most indices a submesh has, so when it comes time to copy the indices we can make a nativearray of exactly the right size as a staging buffer
+			int maxSmIdxCount = 0;
+		
 			for (int i = 0; i < rendererCount; i++)
 			{
 				int rIdx = validRendererIdx[i];
@@ -511,6 +613,7 @@ namespace SLZ.CustomStaticBatching
 					submesh2Renderer[smPointer] = (ushort)i;
 					submeshBounds[smPointer] = smd.bounds;
 					//Debug.Log("Submesh " + smPointer + " index start: " + smd2.indexStart + " bounds: " + smd2.bounds);
+					maxSmIdxCount = math.max(maxSmIdxCount, smd.indexCount);
 					idxCount += smd.indexCount;
 					subMeshDescriptors[smPointer] = smd2;
 
@@ -522,13 +625,17 @@ namespace SLZ.CustomStaticBatching
 				meshPointer++;
 				vtxPointer += rd[rIdx].mesh.vertexCount;
 			}
-			combinedMesh.SetIndexBufferParams(idxCount, IndexFormat.UInt16);
+
+			// Set the total size of the index buffer of the combined mesh, and set the total bounds.
+			combinedMesh.SetIndexBufferParams(idxCount, highPIdxBuffer ? IndexFormat.UInt32 : IndexFormat.UInt16);
 			combinedMesh.bounds = totalBounds;
 
+			// Transform the bounds of each submesh from its local object space to world space
 			TransformSubmeshBounds transformSubmeshBounds = new TransformSubmeshBounds() { bounds = submeshBounds, obj2World = rendererObject2World, obj2WorldIdx = submesh2Renderer };
 			JobHandle transformBoundsHandle = transformSubmeshBounds.Schedule(submeshCount, 16);
 			transformBoundsHandle.Complete();
 
+			// Recreate each submesh descriptor struct with the new worldspace bounds
 			for (int i = 0; i < submeshCount; i++)
 			{
 
@@ -547,12 +654,14 @@ namespace SLZ.CustomStaticBatching
 			rendererObject2World.Dispose();
 			submesh2Renderer.Dispose();
 
-			NativeArray<ushort> indexBuffer = new NativeArray<ushort>(idxCount, Allocator.TempJob);
+
+			// Create the combined mesh's index buffer, and populate it with the indices of all the input meshes' submeshes
+			NativeArray<T> indexBuffer = new NativeArray<T>(idxCount, Allocator.TempJob);
 			NativeArray<int4> indexStartCountOffsetFlip = new NativeArray<int4>(submeshCount, Allocator.TempJob);
 
 			int idxPointer = 0;
 			int smPointer2 = 0;
-			List<ushort> indices = new List<ushort>();
+			List<T> indices = new List<T>();
 			Span<int> topologyCount = stackalloc int[5] { 0, 0, 0, 0, 0 };
 			topologyCount[(int)MeshTopology.Triangles] = 3;
 			topologyCount[(int)MeshTopology.Quads] = 4;
@@ -562,17 +671,27 @@ namespace SLZ.CustomStaticBatching
 				int rendererIdx = combinedSmInfo.rendererIdx[i];
 
 				int meshIdx = renderer2Mesh[combinedSmInfo.rendererIdx[i]];
-				Mesh tmesh = uniqueMeshList[meshIdx];
+				MeshData tmesh = uniqueMeshList[meshIdx];
 				int firstSubMesh = combinedSmInfo.submeshStart[i];
 				int totalIdxCount = 0;
 
 				for (int sm = 0; sm < combinedSmInfo.submeshCount[i]; sm++)
 				{
-					tmesh.GetIndices(indices, sm);
 					int totalSm = firstSubMesh + sm;
 					int numIdx = (int)subMeshDescriptors[totalSm].indexCount;
+					
+					if (highPIdxBuffer)
+					{
+						NativeArray<int> idxAlias = NativeArraySubArray.GetSubArrayAlias<T, int>(indexBuffer, idxPointer, numIdx);
+						tmesh.GetIndices(idxAlias, sm);
+					}
+					else
+					{
+						NativeArray<ushort> idxAlias = NativeArraySubArray.GetSubArrayAlias<T, ushort>(indexBuffer, idxPointer, numIdx);
+						tmesh.GetIndices(idxAlias, sm);
+					}
 
-					NativeArray<ushort>.Copy(CSBListExt.GetInternalArray(indices), 0, indexBuffer, idxPointer, numIdx);
+					//NativeArray<T>.Copy(CSBListExt.GetInternalArray(indices), 0, indexBuffer, idxPointer, numIdx);
 
 					int sign = rendererScaleSign[rendererIdx] == 0 ? 1 : 0;
 					int topo = topologyCount[(int)subMeshDescriptors[smPointer2].topology];
@@ -584,10 +703,28 @@ namespace SLZ.CustomStaticBatching
 					smPointer2++;
 				}
 			}
-			OffsetFlipIndexBuffer16 offsetIdxJob = new OffsetFlipIndexBuffer16 { indices = indexBuffer, indexStartCountOffset = indexStartCountOffsetFlip };
-			JobHandle jobHandle = offsetIdxJob.Schedule(submeshCount, 1);
-			jobHandle.Complete();
-			combinedMesh.SetIndexBufferData<ushort>(indexBuffer, 0, 0, idxCount, MeshUpdateFlags.DontRecalculateBounds);
+
+			// Offset the indices for each submesh in the combined mesh's index buffer by the total index count of the preceeding submeshes
+			if (highPIdxBuffer)
+			{
+				NativeArray<int> intBuffer = indexBuffer.Reinterpret<int>(sizeof(int));
+				GenericInt32 intMath = new GenericInt32();
+				OffsetFlipIndexBuffer<int, GenericInt32> offsetIdxJob = new OffsetFlipIndexBuffer<int, GenericInt32> { 
+					indices = intBuffer, indexStartCountOffset = indexStartCountOffsetFlip, converter = intMath };
+				JobHandle jobHandle = offsetIdxJob.Schedule(submeshCount, 1);
+				jobHandle.Complete();
+			}
+			else 
+			{
+				NativeArray<ushort> shortBuffer = indexBuffer.Reinterpret<ushort>(sizeof(ushort));
+				GenericInt16 shortMath = new GenericInt16();
+				OffsetFlipIndexBuffer<ushort, GenericInt16> offsetIdxJob = new OffsetFlipIndexBuffer<ushort, GenericInt16> { 
+					indices = shortBuffer, indexStartCountOffset = indexStartCountOffsetFlip, converter = shortMath };
+				JobHandle jobHandle = offsetIdxJob.Schedule(submeshCount, 1);
+				jobHandle.Complete();
+			}
+
+			combinedMesh.SetIndexBufferData<T>(indexBuffer, 0, 0, idxCount, MeshUpdateFlags.DontRecalculateBounds);
 			combinedMesh.SetSubMeshes(subMeshDescriptors, MeshUpdateFlags.DontRecalculateBounds);
 
 
@@ -597,48 +734,63 @@ namespace SLZ.CustomStaticBatching
 			return combinedMesh;
 		}
 
+		/// <summary>
+		/// Job for offsetting the values of the indices of each submesh in the combined index buffer by the total number of indices of all the preceeding submeshes
+		/// Also flips the order of the indices of each primitive if the submesh was scaled negatively
+		/// </summary>
+		/// <typeparam name="T">Type of the index buffer, assumed to be int or ushort</typeparam>
+		/// <typeparam name="TConverter">Struct implementing the IGenericInt interface for T, to provide the method adding an int and T</typeparam>
 		[BurstCompile]
-		struct OffsetFlipIndexBuffer16 : IJobParallelFor
+		struct OffsetFlipIndexBuffer<T, TConverter> : IJobParallelFor
+			where T : unmanaged 
+			where TConverter : IGenericInt<T>
 		{
 			[NativeDisableParallelForRestriction]
-			public NativeArray<ushort> indices;
+			public NativeArray<T> indices;
 			[ReadOnly]
 			public NativeArray<int4> indexStartCountOffset;
+			public TConverter converter;
+
+			public JobHandle ISchedule(int arrayLength, int innerLoopBatchCount)
+			{
+				return this.Schedule(arrayLength, innerLoopBatchCount);
+			}
 
 			public void Execute(int i)
 			{
 				int4 idxDat = indexStartCountOffset[i];
 				int idxStart = idxDat.x;
 				int idxEnd = idxStart + idxDat.y;
-				ushort offset = (ushort)idxDat.z;
-				if (idxDat.w == 0)
+				int offset = idxDat.z;
+				int primitiveCount = idxDat.w;
+				if (primitiveCount == 0)
 				{
 					for (int idx = idxStart; idx < idxEnd; idx++)
 					{
-						indices[idx] += offset;
+						indices[idx] = converter.Add(indices[idx], offset);
 					}
 				}
-				else if (idxDat.w == 3)
+				else if (primitiveCount == 3)
 				{
 					for (int idx = idxStart; idx < idxEnd; idx += 3)
 					{
-						indices[idx] += offset;
-						indices[idx + 1] += offset;
-						indices[idx + 2] += offset;
-						ushort temp = indices[idx];
+						indices[idx] = converter.Add(indices[idx], offset);
+						indices[idx + 1] = converter.Add(indices[idx + 1], offset);
+						indices[idx + 2] = converter.Add(indices[idx + 2], offset);
+						T temp = indices[idx];
 						indices[idx] = indices[idx + 2];
 						indices[idx + 2] = temp;
 					}
 				}
-				else if (idxDat.w == 4)
+				else if (primitiveCount == 4)
 				{
 					for (int idx = idxStart; idx < idxEnd; idx += 4)
 					{
-						indices[idx] += offset;
-						indices[idx + 1] += offset;
-						indices[idx + 2] += offset;
-						indices[idx + 3] += offset;
-						ushort temp = indices[idx];
+						indices[idx] = converter.Add(indices[idx], offset);
+						indices[idx + 1] = converter.Add(indices[idx + 1], offset);
+						indices[idx + 2] = converter.Add(indices[idx + 2], offset);
+						indices[idx + 3] = converter.Add(indices[idx + 3], offset);
+						T temp = indices[idx];
 						indices[idx] = indices[idx + 3];
 						indices[idx + 3] = temp;
 						temp = indices[idx + 1];
@@ -648,6 +800,7 @@ namespace SLZ.CustomStaticBatching
 				}
 			}
 		}
+
 
 		[BurstCompile]
 		struct TransformSubmeshBounds : IJobParallelFor
@@ -703,7 +856,7 @@ namespace SLZ.CustomStaticBatching
 		}
 
 		internal AsyncMeshReadbackData ComputeCopyMeshes(ref NativeArray<PackedChannel> meshPackedChannels, ref NativeArray<PackedChannel> combinedPackedChannels, ref NativeArray<byte> rendererScaleSign, Mesh combinedMesh,
-			RendererData[] rd, int2 rendererRange, int[] renderer2Mesh, ref NativeArray<byte> invalidMeshes, List<Mesh> meshList)
+			RendererData[] rd, int2 rendererRange, int[] renderer2Mesh, List<Mesh> meshList)
 		{
 			// Figure out what lightmaps are potentially present in the combined mesh.
 			// If either UV1 or UV2 are in the combined mesh, but not in an input mesh,
@@ -739,51 +892,49 @@ namespace SLZ.CustomStaticBatching
 			{
 
 				int meshIdx = renderer2Mesh[renderer];
-				if (invalidMeshes[meshIdx] == 0)
-				{
-					int stride = meshList[meshIdx].GetVertexBufferStride(0);
-					//Debug.Log("single Mesh Stride = " + stride);
-					int tanSign = rendererScaleSign[renderer] > 0 ? 1 : -1;
-					meshInBuffer[0] = new MeshInBuffer
-						{
-							ObjectToWorld = rd[renderer].rendererTransform.localToWorldMatrix,
-							WorldToObject = rd[renderer].rendererTransform.worldToLocalMatrix,
-							lightmapScaleOffset = new float4(rd[renderer].meshRenderer.lightmapScaleOffset),
-							dynLightmapScaleOffset = new float4(rd[renderer].meshRenderer.realtimeLightmapScaleOffset),
-							offset_strideIn_TanSign = new int4(combinedMeshCopyIndex, stride, tanSign, 0)
-						};
-					combinedMeshCopyIndex += combinedStride * meshList[meshIdx].vertexCount;
-					CSBBufferExt.CmdSetFromSpan(cmd, meshInSettings, meshInBuffer, 0, 0, 1);
 
-					// Handle lightmapped meshes where uv0 is being used as the lightmap UV. Set UV1's packed data to be UV0's so it just copies UV0 to UV1
-					// Also handle the dynamic lightmap. If UV2 is missing and there's no UV2 in the output, its using UV1 
-					bool missingLM = hasLightmap && meshPackedChannels[NUM_VTX_CHANNELS * meshIdx + 5].dimension == 0;
-					bool missingDynLM = hasDynLightmap && meshPackedChannels[NUM_VTX_CHANNELS * meshIdx + 6].dimension == 0;
-					
-					if (missingLM || missingDynLM)
+				int stride = meshList[meshIdx].GetVertexBufferStride(0);
+				//Debug.Log("single Mesh Stride = " + stride);
+				int tanSign = rendererScaleSign[renderer] > 0 ? 1 : -1;
+				meshInBuffer[0] = new MeshInBuffer
 					{
-						CSBNativeArraySpanExt.Copy(meshPackedChannels, NUM_VTX_CHANNELS * meshIdx, meshPackedChannels2, 0, 12);
-						if (missingLM)
-						{
-							meshPackedChannels2[5] = meshPackedChannels2[4];
-						}
-						if (missingDynLM)
-						{
-							meshPackedChannels2[6] = meshPackedChannels2[5].dimension == 0 ? meshPackedChannels2[4] : meshPackedChannels2[5];
-						}
-						CSBBufferExt.CmdSetFromSpan(cmd, meshInSettings, meshPackedChannels2, 0, 44, NUM_VTX_CHANNELS);
-					}
-					else
+						ObjectToWorld = rd[renderer].rendererTransform.localToWorldMatrix,
+						WorldToObject = rd[renderer].rendererTransform.worldToLocalMatrix,
+						lightmapScaleOffset = new float4(rd[renderer].meshRenderer.lightmapScaleOffset),
+						dynLightmapScaleOffset = new float4(rd[renderer].meshRenderer.realtimeLightmapScaleOffset),
+						offset_strideIn_TanSign = new int4(combinedMeshCopyIndex, stride, tanSign, 0)
+					};
+				combinedMeshCopyIndex += combinedStride * meshList[meshIdx].vertexCount;
+				CSBBufferExt.CmdSetFromSpan(cmd, meshInSettings, meshInBuffer, 0, 0, 1);
+
+				// Handle lightmapped meshes where uv0 is being used as the lightmap UV. Set UV1's packed data to be UV0's so it just copies UV0 to UV1
+				// Also handle the dynamic lightmap. If UV2 is missing and there's no UV2 in the output, its using UV1 
+				bool missingLM = hasLightmap && meshPackedChannels[NUM_VTX_CHANNELS * meshIdx + 5].dimension == 0;
+				bool missingDynLM = hasDynLightmap && meshPackedChannels[NUM_VTX_CHANNELS * meshIdx + 6].dimension == 0;
+				
+				if (missingLM || missingDynLM)
+				{
+					CSBNativeArraySpanExt.Copy(meshPackedChannels, NUM_VTX_CHANNELS * meshIdx, meshPackedChannels2, 0, 12);
+					if (missingLM)
 					{
-						cmd.SetBufferData(meshInSettings, meshPackedChannels, NUM_VTX_CHANNELS * meshIdx, 44, NUM_VTX_CHANNELS);
+						meshPackedChannels2[5] = meshPackedChannels2[4];
 					}
-					Mesh singleMesh = meshList[meshIdx];
-					singleMesh.vertexBufferTarget |= GraphicsBuffer.Target.Raw;
-					meshBuffers[numMeshesCopied] = singleMesh.GetVertexBuffer(0);
-					cmd.SetComputeBufferParam(meshCopy, 0, propVertIn, meshBuffers[numMeshesCopied]);
-					cmd.DispatchCompute(meshCopy, 0, (meshList[meshIdx].vertexCount + 31) / 32, 1, 1);
-					numMeshesCopied++;
+					if (missingDynLM)
+					{
+						meshPackedChannels2[6] = meshPackedChannels2[5].dimension == 0 ? meshPackedChannels2[4] : meshPackedChannels2[5];
+					}
+					CSBBufferExt.CmdSetFromSpan(cmd, meshInSettings, meshPackedChannels2, 0, 44, NUM_VTX_CHANNELS);
 				}
+				else
+				{
+					cmd.SetBufferData(meshInSettings, meshPackedChannels, NUM_VTX_CHANNELS * meshIdx, 44, NUM_VTX_CHANNELS);
+				}
+				Mesh singleMesh = meshList[meshIdx];
+				singleMesh.vertexBufferTarget |= GraphicsBuffer.Target.Raw;
+				meshBuffers[numMeshesCopied] = singleMesh.GetVertexBuffer(0);
+				cmd.SetComputeBufferParam(meshCopy, 0, propVertIn, meshBuffers[numMeshesCopied]);
+				cmd.DispatchCompute(meshCopy, 0, (meshList[meshIdx].vertexCount + 31) / 32, 1, 1);
+				numMeshesCopied++;
 			}
 			Graphics.ExecuteCommandBuffer(cmd);
 			cmd.Dispose();
@@ -805,7 +956,7 @@ namespace SLZ.CustomStaticBatching
 		}
 
 		internal void JobCopyMeshes(ref NativeArray<PackedChannel> meshPackedChannels, ref NativeArray<PackedChannel> combinedPackedChannels, ref NativeArray<byte> rendererScaleSign, Mesh combinedMesh,
-	RendererData[] rd, int2 rendererRange, int[] renderer2Mesh, ref NativeArray<byte> invalidMeshes, MeshDataArray meshList)
+	RendererData[] rd, int2 rendererRange, int[] renderer2Mesh, MeshDataArray meshList)
 		{
 			// Figure out what lightmaps are potentially present in the combined mesh.
 			// If either UV1 or UV2 are in the combined mesh, but not in an input mesh,
@@ -830,56 +981,55 @@ namespace SLZ.CustomStaticBatching
 			{
 
 				int meshIdx = renderer2Mesh[renderer];
-				if (invalidMeshes[meshIdx] == 0)
+				
+				int stride = meshList[meshIdx].GetVertexBufferStride(0);
+				//Debug.Log("single Mesh Stride = " + stride);
+				int tanSign = rendererScaleSign[renderer] > 0 ? 1 : -1;
+				NativeArray<PackedChannel>.Copy(meshPackedChannels, NUM_VTX_CHANNELS * meshIdx, meshPackedChannels2, 0, NUM_VTX_CHANNELS);
+				for (int i = 0; i < NUM_VTX_CHANNELS; i++)
 				{
-					int stride = meshList[meshIdx].GetVertexBufferStride(0);
-					//Debug.Log("single Mesh Stride = " + stride);
-					int tanSign = rendererScaleSign[renderer] > 0 ? 1 : -1;
-					NativeArray<PackedChannel>.Copy(meshPackedChannels, NUM_VTX_CHANNELS * meshIdx, meshPackedChannels2, 0, NUM_VTX_CHANNELS);
-					for (int i = 0; i < NUM_VTX_CHANNELS; i++)
-					{
-						Debug.Assert(meshPackedChannels2[i].offset % 4 == 0, "offset not aligned on 4 bytes, failure!");
-					}
-					// Handle lightmapped meshes where uv0 is being used as the lightmap UV. Set UV1's packed data to be UV0's so it just copies UV0 to UV1
-					// Also handle the dynamic lightmap. If UV2 is missing and there's no UV2 in the output, its using UV1 
-					bool missingLM = hasLightmap && meshPackedChannels2[5].dimension == 0;
-					bool missingDynLM = hasDynLightmap && meshPackedChannels2[6].dimension == 0;
-
-					if (missingLM || missingDynLM)
-					{
-
-						if (missingLM)
-						{
-							meshPackedChannels2[5] = meshPackedChannels2[4];
-						}
-						if (missingDynLM)
-						{
-							meshPackedChannels2[6] = meshPackedChannels2[5].dimension == 0 ? meshPackedChannels2[4] : meshPackedChannels2[5];
-						}
-					}
-
-					TransferVtxBuffer vtxJob = new TransferVtxBuffer
-					{
-						vertIn = meshList[meshIdx].GetVertexData<byte>(0),
-						vertOut = combinedMeshVert,
-						ObjectToWorld = rd[renderer].rendererTransform.localToWorldMatrix,
-						WorldToObject = rd[renderer].rendererTransform.worldToLocalMatrix,
-						lightmapScaleOffset = new float4(rd[renderer].meshRenderer.lightmapScaleOffset),
-						dynLightmapScaleOffset = new float4(rd[renderer].meshRenderer.realtimeLightmapScaleOffset),
-						offset_strideIn_TanSign = new int4(combinedMeshCopyIndex, stride, tanSign, 0),
-						inPackedChannelInfo = meshPackedChannels2,
-						strideOut = strideOut,
-						outPackedChannelInfo = combinedPackedChannels,
-						formatToBytes = formatToBytes,
-					};
-					int vertexCount = meshList[meshIdx].vertexCount;
-					combinedMeshCopyIndex += combinedStride * vertexCount;
-
-					JobHandle vtxJobHandle = vtxJob.Schedule(vertexCount, 16);
-					vtxJobHandle.Complete();
-					vtxJob.vertIn.Dispose();
-					numMeshesCopied++;
+					Debug.Assert(meshPackedChannels2[i].offset % 4 == 0, "offset not aligned on 4 bytes, failure!");
 				}
+				// Handle lightmapped meshes where uv0 is being used as the lightmap UV. Set UV1's packed data to be UV0's so it just copies UV0 to UV1
+				// Also handle the dynamic lightmap. If UV2 is missing and there's no UV2 in the output, its using UV1 
+				bool missingLM = hasLightmap && meshPackedChannels2[5].dimension == 0;
+				bool missingDynLM = hasDynLightmap && meshPackedChannels2[6].dimension == 0;
+
+				if (missingLM || missingDynLM)
+				{
+
+					if (missingLM)
+					{
+						meshPackedChannels2[5] = meshPackedChannels2[4];
+					}
+					if (missingDynLM)
+					{
+						meshPackedChannels2[6] = meshPackedChannels2[5].dimension == 0 ? meshPackedChannels2[4] : meshPackedChannels2[5];
+					}
+				}
+
+				TransferVtxBuffer vtxJob = new TransferVtxBuffer
+				{
+					vertIn = meshList[meshIdx].GetVertexData<byte>(0),
+					vertOut = combinedMeshVert,
+					ObjectToWorld = rd[renderer].rendererTransform.localToWorldMatrix,
+					WorldToObject = rd[renderer].rendererTransform.worldToLocalMatrix,
+					lightmapScaleOffset = new float4(rd[renderer].meshRenderer.lightmapScaleOffset),
+					dynLightmapScaleOffset = new float4(rd[renderer].meshRenderer.realtimeLightmapScaleOffset),
+					offset_strideIn_TanSign = new int4(combinedMeshCopyIndex, stride, tanSign, 0),
+					inPackedChannelInfo = meshPackedChannels2,
+					strideOut = strideOut,
+					outPackedChannelInfo = combinedPackedChannels,
+					formatToBytes = formatToBytes,
+				};
+				int vertexCount = meshList[meshIdx].vertexCount;
+				combinedMeshCopyIndex += combinedStride * vertexCount;
+
+				JobHandle vtxJobHandle = vtxJob.Schedule(vertexCount, 16);
+				vtxJobHandle.Complete();
+				vtxJob.vertIn.Dispose();
+				numMeshesCopied++;
+
 			}
 
 			combinedMesh.SetVertexBufferData<byte>(combinedMeshVert, 0, 0, combinedMeshVert.Length, 0, MeshUpdateFlags.DontValidateIndices | MeshUpdateFlags.DontRecalculateBounds | MeshUpdateFlags.DontNotifyMeshUsers | MeshUpdateFlags.DontResetBoneBounds);

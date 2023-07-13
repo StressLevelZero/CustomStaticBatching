@@ -64,9 +64,9 @@ namespace SLZ.CustomStaticBatching.Editor
 
 			ComputeShader transferVtxCompute = SBCombineMeshEditor.GetTransferVtxComputeShader();
 			SBCombineMeshList combiner = new SBCombineMeshList(transferVtxCompute);
-			combiner.SetCompressionFromProjectSettings();
-			combiner.vertexFormatCompression[1] = SBCombineMeshList.VtxFormats.SNorm8;
-			combiner.vertexFormatCompression[2] = SBCombineMeshList.VtxFormats.SNorm8;
+			combiner.FetchGlobalProjectSettings();
+			combiner.vertexFormatCompression[1] = PackedChannel.VtxFormats.SNorm8;
+			combiner.vertexFormatCompression[2] = PackedChannel.VtxFormats.SNorm8;
 			combiner.GenerateStaticBatches(sortedData);
 		}
 

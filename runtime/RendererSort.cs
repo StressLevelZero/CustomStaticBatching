@@ -19,13 +19,14 @@ namespace SLZ.CustomStaticBatching
 	/// <summary>
 	/// Data used to sort renderers for static batching.
 	/// Sorts by each property that can break rendering contiguous sections of the static batch in order of decreasing importance.
-	/// 1. Having multiple materials, this is most important because each multi-material mesh breaks contiguous sections by definition.
-	/// 2. Shader, using the instanceID as a proxy
-	/// 3. Hash of the local keywords on the shader, as these represent different shader programs
-	/// 4. Material (instanceID)
-	/// 5. Lightmap index
-	/// 6. Probes IDs (sort probes ourself using a hilbert curve? or just use the instanceID?)
-	/// 7. Zone ID (ID of the batching volume the renderer is in, 0xFFFF = not in a zone)
+	/// 0. 32 bit-index buffer useage. We don't want to upcast 16-bit index buffer meshes to 32 bit in order to combine 16 and 32 bit meshes, as that would dramatically increase memory usage.
+	/// 1. Having multiple materials, this is very important because each multi-material mesh breaks contiguous sections by definition.
+	/// 2. Active state. Assuming the vast majority of static meshes that are off will never be activated, we don't want to create holes in the buffer for meshes that will never be visible
+	/// 3. TODO: Zone ID (ID of the batching volume the renderer is in, 0xFFFF = not in a zone)
+	/// 4. Shader, using the instanceID as a proxy
+	/// 5. Hash of the local keywords on the shader, as these represent different shader programs
+	/// 6. Material, using the instanceID as a proxy
+	/// 7. Lightmap index
 	/// 8. Hilbert index
 	/// </summary>
 	public struct RendererSortItem : IComparable<RendererSortItem>
@@ -33,12 +34,12 @@ namespace SLZ.CustomStaticBatching
 		public int rendererArrayIdx;
 
 		public ushort breakingState; // flags to bin the most important boolean properties. is multi-material in highest bit, is active in lowest
+		public ushort zoneID;
 		public int shaderID;
 		public ulong variantHash;
 		public int materialID;
 		public ushort lightmapIdx;
-		public ulong probeId; // Pack two int IDs for the two most important probes
-		public ushort zoneID;
+		//public ulong probeId; // Pack two int IDs for the two most important probes // Not used for now, seems to cause issues
 		public ulong hilbertIdx;
 
 		[BurstCompatible]
@@ -47,6 +48,10 @@ namespace SLZ.CustomStaticBatching
 			if (breakingState != other.breakingState)
 			{
 				return breakingState > other.breakingState ? 1 : -1;
+			}
+			if (zoneID != other.zoneID)
+			{
+				return zoneID > other.zoneID ? 1 : -1;
 			}
 			if (shaderID != other.shaderID)
 			{
@@ -68,10 +73,7 @@ namespace SLZ.CustomStaticBatching
 			//{
 			//	return probeId > other.probeId ? 1 : -1;
 			//}
-			if (zoneID != other.zoneID)
-			{
-				return zoneID > other.zoneID ? 1 : -1;
-			}
+
 			if (hilbertIdx != other.hilbertIdx)
 			{
 				return hilbertIdx > other.hilbertIdx ? 1 : -1;
@@ -133,6 +135,11 @@ namespace SLZ.CustomStaticBatching
 			}
 		}
 
+		/// <summary>
+		/// Gets the index of the local shader keyword, assuming GetDelegate() has alread been called.
+		/// </summary>
+		/// <param name="kw"></param>
+		/// <returns></returns>
 		[MethodImpl(MethodImplOptions.AggressiveInlining)]
 		public static uint GetIndexUnsafe(LocalKeyword kw)
 		{
@@ -142,6 +149,10 @@ namespace SLZ.CustomStaticBatching
 			return UnsafeUtility.As<LocalKeyword, LocalKeywordInternals>(ref kw).m_Index;
 #endif
 		}
+
+		/// <summary>
+		/// struct that matches the fields and layout of LocalKeyword, which we can treat a LocalKeyword as to get access to m_Index 
+		/// </summary>
 		readonly struct LocalKeywordInternals
 		{
 			internal readonly LocalKeywordSpace m_SpaceInfo;
@@ -153,11 +164,14 @@ namespace SLZ.CustomStaticBatching
 
 	}
 
+	/// <summary>
+	/// Utilities for getting the hash of a shader's keywords
+	/// </summary>
 	internal static class ShaderKWHash
 	{
 		/// <summary>
 		/// Gets hash of a local keyword array ASSUMING YOU CALLED ReflectKWFields.GetDelegate() FIRST!
-		/// Assumes the shader they belong to has less than 64 keywords, including global keywords! 
+		/// Assumes the shader they belong to has less than 68 keywords, including global keywords! 
 		/// </summary>
 		/// <param name="kwArray">Array of keywords to get the hash of</param>
 		/// <returns>Hash of the keyword array</returns>
@@ -190,18 +204,36 @@ namespace SLZ.CustomStaticBatching
 		}
 	}
 
-
-	public class RendererSort
+	/// <summary>
+	/// Class that contains the method used to sort a list of renderers for combining in static batched meshes
+	/// </summary>
+	public static class RendererSort
 	{
 		static readonly ProfilerMarker profileSortRenderers = new ProfilerMarker("CustomStaticBatching.SortRenderers");
+
+		/// <summary>
+		/// Given a list of mesh renderers and a corresponding list of mesh filters, creates an array of renderer data sorted for static batching
+		/// </summary>
+		/// <param name="meshRenderers"> List of mesh renderers</param>
+		/// <param name="filters"> List of mesh filters that correspond to each element of meshRenderers</param>
+		/// <returns></returns>
 		public static RendererData[] GetSortedData(List<MeshRenderer> meshRenderers, List<MeshFilter> filters)
 		{
 			profileSortRenderers.Begin();
+
+			// Get an array of unique materials referenced by the renderers, and a mapping from a renderer to the index of its first material in the unique array
 			int[] rendererToMaterial;
 			Material[] uniqueMats;
 			GetUniqueMaterials(meshRenderers, out rendererToMaterial, out uniqueMats);
+
+			// For each unique material, get a hash of the material, a hash of the shader it uses, and a hash of the enabled keywords on the material
 			MaterialAndShaderID[] matShaderIds = GetMaterialAndShaderIDs(uniqueMats, rendererToMaterial);
+
+			// Get the hilbert index of the bounds center of each mesh renderer, in the cubic bounding box that encapsulates all the static meshes to be combined.
+			// TODO: Also pass batching volumes and a BVH tree to accelerate finding the appropriate batching volume for each mesh
 			NativeArray<UInt64> hilbertIdxs = GetHilbertIdxs(meshRenderers);
+
+			// Generate an array of data for each renderer that will be used to sort the renderers.
 			int numRenderers = meshRenderers.Count;
 			NativeArray<RendererSortItem> rendererSortItems = new NativeArray<RendererSortItem>(numRenderers, Allocator.TempJob);
 			List<ReflectionProbeBlendInfo> closestProbes = new List<ReflectionProbeBlendInfo> ();
@@ -211,9 +243,10 @@ namespace SLZ.CustomStaticBatching
 				int materialIdx = rendererToMaterial[i];
 				mr.GetClosestReflectionProbes(closestProbes);
 				int numClosest = closestProbes.Count;
-				ReadOnlySpan<int> probeHash = stackalloc int[2] { 
-					numClosest > 1 ? closestProbes[1].probe.GetHashCode() : -0x7fffffff,
-					numClosest > 0 ? closestProbes[0].probe.GetHashCode() : -0x7fffffff}; // Assumes little-endian
+				// I was going to sort on probe ID's, but it seems to break batching worse than not? Sorting spatially should ensure the probe indices is also mostly sorted anyways.
+				//ReadOnlySpan<int> probeHash = stackalloc int[2] { 
+				//	numClosest > 1 ? closestProbes[1].probe.GetHashCode() : -0x7fffffff,
+				//	numClosest > 0 ? closestProbes[0].probe.GetHashCode() : -0x7fffffff}; // Assumes little-endian
 				closestProbes.Clear();
 				ushort breakingState = (ushort)((mr.sharedMaterials.Length > 1 ? 0x4000u : 0u) + (mr.gameObject.activeInHierarchy && mr.enabled ? 0u : 1u));
 				rendererSortItems[i] = new RendererSortItem
@@ -224,15 +257,19 @@ namespace SLZ.CustomStaticBatching
 					variantHash = matShaderIds[materialIdx].keywordHash,
 					materialID = matShaderIds[materialIdx].materialID,
 					lightmapIdx = (ushort)mr.lightmapIndex,
-					probeId = MemoryMarshal.Cast<int, ulong>(probeHash)[0], // Pack two int IDs for the two most important probes
+					//probeId = MemoryMarshal.Cast<int, ulong>(probeHash)[0], // Pack two int IDs for the two most important probes
 					zoneID = 0,
 					hilbertIdx = hilbertIdxs[i]
 				};
 			}
 			hilbertIdxs.Dispose();
+
+			// Sort the renderers using the Collection's package extensions for NativeArray sorting
 			var sortJob = NativeSortExtension.SortJob(rendererSortItems);
 			JobHandle sortJobHandle = sortJob.Schedule();
 			sortJobHandle.Complete();
+
+			// Populate an array of RendererData using the sorted items
 			RendererData[] rendererData = new RendererData[numRenderers];
 			for (int i = 0; i < numRenderers; i++)
 			{

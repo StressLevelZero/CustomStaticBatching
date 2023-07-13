@@ -1,6 +1,6 @@
 # Custom Static Batching Utility
 
-WARNING: This package is a work in progress, probably contains innumerable bugs, and has only been tested in unity 2022. Use at your own risk. 
+WARNING: This is a work in progress, probably contains innumerable bugs, and has only been tested in unity 2022. Use at your own risk. 
 
 This is a complete replacement for unity's default static batching mesh generation process that seeks to improve mesh index data ordering to improve performance as well as add options for more advanced optimizations. The idea behind this is that the static batching system is capable of drawing multiple renderers in a single drawcall, if certain conditions are met. This happens when multiple renderers in the frame are contained within a continuous section of the static-batched combined mesh's index buffer and they share the exact same shader program, material, and UnityPerObject buffer. In order to maximize the chances of this happening, the sub-meshes in the combined mesh need to be sorted by shader, material and spatial locality.
 
@@ -31,6 +31,8 @@ It works by using using the IProcessScene callback to modify the temporary copy 
 - Assign the combined mesh and submesh index and count to each renderer, and remove the static batching flag
 
 # TODO
+
+- Clean up the code and organize it better
 
 - Add a batching zone component to give the user control over the spatial sorting rather than simply relying on a global hilbert index. Objects within each zone will calculate their hilbert index relative to the bounds of the zone rather than the bounds of the scene. Allow the user to specify the sorting order of the zones, or sort using a BVH?
 
