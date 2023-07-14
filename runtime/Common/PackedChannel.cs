@@ -46,6 +46,7 @@ namespace SLZ.CustomStaticBatching
 		[Serializable]
 		public enum VtxFormats : byte
 		{
+			 [UnityEngine. HideInInspector]
 			Invalid = 0,
 			UNorm8 = 1,
 			SNorm8 = 2,

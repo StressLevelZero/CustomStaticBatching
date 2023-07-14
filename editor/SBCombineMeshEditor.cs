@@ -21,7 +21,7 @@ namespace SLZ.CustomStaticBatching.Editor
 		public static void FetchGlobalProjectSettings(this SBCombineMeshList cml)
 		{
 			CombineRendererSettings settings = SBSettingsSO.GlobalSettings.GetActiveBuildTargetSettings();
-			cml.vertexFormatCompression = settings.vtxFormatCompression;
+			cml.vertexFormatCompression = settings.GetVertexFormats();
 		}
 
 		const string transferVtxGUID = "5bae5a4c97f51964dbc10d3398312270";

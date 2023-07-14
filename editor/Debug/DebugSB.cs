@@ -1,3 +1,4 @@
+#if DEBUG_CUSTOM_STATIC_BATCHING
 using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
@@ -111,3 +112,4 @@ namespace SLZ.CustomStaticBatching.Editor
 		}
 	}
 }
+#endif
