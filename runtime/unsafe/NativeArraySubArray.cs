@@ -16,7 +16,9 @@ namespace SLZ.CustomStaticBatching
 		{
 			void* dataPointer = ((byte*)array.GetUnsafePtr()) + start * sizeof(T);
 			NativeArray<T2> outp = NativeArrayUnsafeUtility.ConvertExistingDataToNativeArray<T2>(dataPointer, length, Allocator.None);
+#if ENABLE_UNITY_COLLECTIONS_CHECKS
 			NativeArrayUnsafeUtility.SetAtomicSafetyHandle(ref outp, AtomicSafetyHandle.GetTempMemoryHandle());
+#endif
 			return outp;
 		}
 

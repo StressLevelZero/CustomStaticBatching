@@ -22,6 +22,8 @@ namespace SLZ.CustomStaticBatching.Editor
 		{
 			CombineRendererSettings settings = SBSettingsSO.GlobalSettings.GetActiveBuildTargetSettings();
 			cml.vertexFormatCompression = settings.GetVertexFormats();
+			cml.allow32bitIdx = settings.allow32bitIdx;
+			cml.max32bitIdx = settings.maxCombined32Idx;
 		}
 
 		const string transferVtxGUID = "5bae5a4c97f51964dbc10d3398312270";
@@ -101,7 +103,7 @@ namespace SLZ.CustomStaticBatching.Editor
 			List<int2> cMeshIdxRange;
 			int _32bitIdxStart;
 			profilerGetMeshBins.Begin();
-			cml.GetCombinedMeshBins(sortedRenderers, validRendererLen, 1_048_576, out renderer2CMeshIdx, out cMeshIdxRange, out _32bitIdxStart);
+			cml.GetCombinedMeshBins(sortedRenderers, validRendererLen, out renderer2CMeshIdx, out cMeshIdxRange, out _32bitIdxStart);
 			profilerGetMeshBins.End();
 
 			int numCombinedMeshes = cMeshIdxRange.Count;

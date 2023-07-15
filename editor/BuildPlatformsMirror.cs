@@ -100,7 +100,7 @@ namespace SLZ.CustomStaticBatching
 				Debug.LogError("BuildPlatforms.GetValidPlatforms returned null");
 				return null;
 			}
-			int count = 0;
+
 			IEnumerator enumerator = buildPlatformArray.GetEnumerator();
 			List<buildPlatformInfo> platformInfos = new List<buildPlatformInfo>();
 			while (enumerator.MoveNext())

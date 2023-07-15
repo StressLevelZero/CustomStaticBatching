@@ -172,7 +172,21 @@ namespace SLZ.CustomStaticBatching.Editor
 				root.style.alignItems = Align.Stretch;
 				root.style.flexShrink = 1;
 				root.style.flexBasis = StyleKeyword.Auto;
-				
+
+				Toggle highPIdx = new Toggle("Allow 32 bit index combined meshes");
+				highPIdx.bindingPath = rootBindingPath + "settings.allow32bitIdx";
+				highPIdx.tooltip = "Allow making combined meshes of 32-bit index buffer meshes. This sorts the 32 bit meshes into their own set combined meshes, so it should not cause issues";
+				SetToggleStyle(highPIdx);
+				highPIdx.BindProperty(settings);
+
+				IntegerField highPIdxCount = new IntegerField("Max vertices per 32-bit index combined mesh");
+				highPIdxCount.isDelayed = true;
+				highPIdxCount.tooltip = "The maximum number of vertices that can be in a 32-bit index buffer combined mesh. Since a 32-bit index buffer can represent trillions of vertices, its a good idea to arbitrarily put a cap on how large the combined mesh can be";
+				highPIdxCount.bindingPath = rootBindingPath + "settings.maxCombined32Idx";
+				SetToggleStyle(highPIdxCount);
+				highPIdxCount.BindProperty(settings);
+				highPIdxCount.RegisterValueChangedCallback((ChangeEvent<int> e) => { highPIdxCount.value = Math.Max( 0x10000, highPIdxCount.value); });
+
 				Foldout vertexSettings = new Foldout();
 				vertexSettings.text = "Vertex Attribute Format Settings";
 
@@ -217,13 +231,10 @@ namespace SLZ.CustomStaticBatching.Editor
 				SetToggleStyle(splitMultiMeshes);
 				splitMultiMeshes.BindProperty(settings);
 
-				Toggle highPIdx = new Toggle("Allow 32 bit index combined meshes");
-				highPIdx.bindingPath = rootBindingPath + "settings.allow32bitIdx";
-				highPIdx.tooltip = "Allow making combined meshes of 32-bit index buffer meshes. This sorts the 32 bit meshes into their own set combined meshes, so it should not cause issues";
-				SetToggleStyle(highPIdx);
-				highPIdx.BindProperty(settings);
+				
 
 				root.Add(highPIdx);
+				root.Add(highPIdxCount);
 				root.Add(vertexSettings);
 				root.Add(NotImplHeader);
 				root.Add(splitMultiMeshes);

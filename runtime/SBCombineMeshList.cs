@@ -10,12 +10,7 @@ using Unity.Mathematics;
 using UnityEngine.Rendering;
 using Unity.Burst;
 using Unity.Jobs;
-using Unity.Collections.LowLevel.Unsafe;
-using System.Runtime.CompilerServices;
-using System.Runtime.InteropServices;
 using static UnityEngine.Mesh;
-using Unity.Profiling;
-using UnityEditor.PackageManager.Requests;
 using UnityEngine.Assertions;
 using static SLZ.CustomStaticBatching.PackedChannel;
 
@@ -36,7 +31,8 @@ namespace SLZ.CustomStaticBatching
 		
 
 		public VtxFormats[] vertexFormatCompression;
-
+		public bool allow32bitIdx;
+		public int max32bitIdx = 2<<23;
 		public ComputeShader transferVtxBufferCompute;
 
 
@@ -107,7 +103,6 @@ namespace SLZ.CustomStaticBatching
 		public void GetCombinedMeshBins(
 			RendererData[] sortedRenderers, 
 			int renderersLength, 
-			int max32Verts, 
 			out ushort[] renderer2CMeshIdx, 
 			out List<int2> cMeshIdxRange, 
 			out int largeIdxBinStart)
@@ -153,31 +148,32 @@ namespace SLZ.CustomStaticBatching
 			}
 			meshGroupBeginIdx = rIdx;
 			vertexCount = 0;
-			
-
-			int largeIdxStart = rIdx;
 			largeIdxBinStart = cMeshIdxRange.Count;
+
+			if (allow32bitIdx)
+			{
+				int largeIdxStart = rIdx;
 			
-
-			for (; rIdx < renderersLength; rIdx++)
-			{
-				Mesh m = sortedRenderers[rIdx].mesh;
-
-				int meshVertexCount = m.vertexCount;
-				vertexCount += meshVertexCount;
-				if (vertexCount >= max32Verts)
+				for (; rIdx < renderersLength; rIdx++)
 				{
-					cMeshIdxRange.Add(new int2(meshGroupBeginIdx, rIdx));
-					currentMeshIdx++;
-					meshGroupBeginIdx = rIdx;
-					vertexCount = meshVertexCount;
-				}
-				renderer2CMeshIdx[rIdx] = currentMeshIdx;
-			}
+					Mesh m = sortedRenderers[rIdx].mesh;
 
-			if ((meshGroupBeginIdx == largeIdxStart && rIdx > largeIdxStart) || meshGroupBeginIdx < renderersLength - 1)
-			{
-				cMeshIdxRange.Add(new int2(meshGroupBeginIdx, renderersLength));
+					int meshVertexCount = m.vertexCount;
+					vertexCount += meshVertexCount;
+					if (vertexCount >= max32bitIdx)
+					{
+						cMeshIdxRange.Add(new int2(meshGroupBeginIdx, rIdx));
+						currentMeshIdx++;
+						meshGroupBeginIdx = rIdx;
+						vertexCount = meshVertexCount;
+					}
+					renderer2CMeshIdx[rIdx] = currentMeshIdx;
+				}
+
+				if ((meshGroupBeginIdx == largeIdxStart && rIdx > largeIdxStart) || meshGroupBeginIdx < renderersLength - 1)
+				{
+					cMeshIdxRange.Add(new int2(meshGroupBeginIdx, renderersLength));
+				}
 			}
 		}
 

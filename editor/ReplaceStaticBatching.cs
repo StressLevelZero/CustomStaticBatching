@@ -64,6 +64,11 @@ namespace SLZ.CustomStaticBatching
 				renderers.TrimExcess();
 				meshFilters.TrimExcess();
 
+				if (renderers.Count < 2)
+				{
+					return;
+				}
+
 				RendererData[] sortedData = RendererSort.GetSortedData(renderers, meshFilters);
 
 				ComputeShader transferVtxCompute = SBCombineMeshEditor.GetTransferVtxComputeShader();
