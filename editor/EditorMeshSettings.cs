@@ -40,7 +40,7 @@ namespace SLZ.CustomStaticBatching
 		public static CombineRendererSettings ApplyProjectSettingsCompression(EditorCombineRendererSettings crs)
 		{
 			SerializedObject projectSettings = GetProjectSettingsAsset();
-			CombineRendererSettings outp = new CombineRendererSettings(false);
+			CombineRendererSettings outp = crs.settings;
 
 			int vertexCompressionFlags = 0;
 			if (projectSettings == null)
@@ -59,8 +59,10 @@ namespace SLZ.CustomStaticBatching
 					vertexCompressionFlags = vertexCompression.intValue;
 				}
 			}
+			outp.serializedVtxFormats = new byte[NUM_VTX_CHANNELS];
+			outp.altStream = new bool[NUM_VTX_CHANNELS];
+			crs.settings.altStream.CopyTo(outp.altStream, 0);
 
-			
 			outp.serializedVtxFormats[0] = crs.settings.serializedVtxFormats[0] != 0 ?
 				crs.settings.serializedVtxFormats[0] :
 				(vertexCompressionFlags & (int)VertexChannelCompressionFlags.Position) == 0 ? (byte)VtxFormats.Float32 : (byte)VtxFormats.Float16;
@@ -94,7 +96,7 @@ namespace SLZ.CustomStaticBatching
 				outp.serializedVtxFormats[i] = crs.settings.serializedVtxFormats[i] != 0 ?
 					crs.settings.serializedVtxFormats[i] : (byte)VtxFormats.Float32;
 			}
-			Debug.Log("Normal compression: " + outp.serializedVtxFormats[1]);
+			
 			return outp;
 		}
 	}

@@ -189,33 +189,69 @@ namespace SLZ.CustomStaticBatching.Editor
 
 				Foldout vertexSettings = new Foldout();
 				vertexSettings.text = "Vertex Attribute Format Settings";
+				VisualElement columnLabels = new VisualElement();
+				columnLabels.style.alignSelf = Align.Stretch;
+				columnLabels.style.flexGrow = 1;
+				columnLabels.style.flexDirection = FlexDirection.Row;
+				columnLabels.style.alignItems = Align.Center;
+				columnLabels.style.justifyContent = Justify.SpaceBetween;
+				columnLabels.style.flexShrink = 1;
+				columnLabels.style.flexBasis = StyleKeyword.Auto;
+
+
+				Label channelLabel = new Label("<b>Attribute</b>");
+				channelLabel.style.flexGrow =0.4f;
+				channelLabel.style.flexBasis = 0.4f;
+				channelLabel.style.flexShrink = 0.4f;
+				channelLabel.style.textOverflow = TextOverflow.Ellipsis;
+				channelLabel.style.overflow = Overflow.Hidden;
+				channelLabel.style.unityTextOverflowPosition = TextOverflowPosition.End;
+				channelLabel.tooltip = "Vertex Attribute";
+
+				Label altStreamLabel = new Label("<b>Secondary Stream</b>");
+				altStreamLabel.style.flexGrow = 0.6f;
+				altStreamLabel.style.flexBasis = 0.6f;
+				altStreamLabel.style.flexShrink = 0.6f;
+				altStreamLabel.style.textOverflow = TextOverflow.Ellipsis;
+				altStreamLabel.style.overflow = Overflow.Hidden;
+				altStreamLabel.style.unityTextOverflowPosition = TextOverflowPosition.End;
+				altStreamLabel.tooltip = "Split the vertex buffer and put the marked attributes in a secondary vertex stream. Useful for many tile-based mobile GPUs, you should put any attributes that do not affect the vertex position into the secondary stream";
+
+				Label maxPrecisionLabel = new Label("<b>Maximum Precision</b>");
+				maxPrecisionLabel.style.flexGrow = 1f;
+				maxPrecisionLabel.style.flexBasis = 1f;
+				maxPrecisionLabel.style.flexShrink = 1f;
+				maxPrecisionLabel.style.textOverflow = TextOverflow.Ellipsis;
+				maxPrecisionLabel.style.overflow = Overflow.Hidden;
+				maxPrecisionLabel.style.unityTextOverflowPosition = TextOverflowPosition.End;
+
+
+				columnLabels.Add(channelLabel);
+				columnLabels.Add(altStreamLabel);
+				columnLabels.Add(maxPrecisionLabel);
+
+				vertexSettings.Add(columnLabels);
 
 				// vertex channel compression
 				List<int> normTanFmtsInt = new List<int>() { (int)VtxFormats.Float32, (int)VtxFormats.Float16, (int)VtxFormats.SNorm8, 0};
-				PopupField<int> normField = VtxCompressionOption("Normal", normTanFmtsInt);
-				normField.bindingPath = rootBindingPath + "settings.serializedVtxFormats.Array.data[1]";
-				normField.BindProperty(settings);
+				VisualElement normField = VtxCompressionOption("Normal", settings, rootBindingPath, 1, normTanFmtsInt);
+			
 				vertexSettings.contentContainer.Add(normField);
 
-				PopupField<int> tanField = VtxCompressionOption("Tangent", normTanFmtsInt);
-				tanField.bindingPath = rootBindingPath + "settings.serializedVtxFormats.Array.data[2]";
-				tanField.BindProperty(settings);
+				VisualElement tanField = VtxCompressionOption("Tangent", settings, rootBindingPath, 2, normTanFmtsInt);
 				vertexSettings.contentContainer.Add(tanField);
 
 				List<int> colorFmtsInt = new List<int>() { (int)VtxFormats.Float32, (int)VtxFormats.Float16, (int)VtxFormats.UNorm8, 0 };
-				PopupField<int> colorField = VtxCompressionOption("Color", colorFmtsInt);
-				colorField.bindingPath = rootBindingPath + "settings.serializedVtxFormats.Array.data[3]";
-				colorField.BindProperty(settings);
+				VisualElement colorField = VtxCompressionOption("Color", settings, rootBindingPath, 3, colorFmtsInt);
+			
 				vertexSettings.contentContainer.Add(colorField);
 
 				List<int> uvFmtsInt = new List<int>() { (int)VtxFormats.Float32, (int)VtxFormats.Float16, (int)VtxFormats.SNorm8, (int)VtxFormats.UNorm8, 0 };
-				PopupField<int>[] uvFields = new PopupField<int>[8];
+				
 				for (int i = 0; i < 8; i++)
 				{
-					uvFields[i] = VtxCompressionOption("UV" + i, uvFmtsInt);
-					uvFields[i].bindingPath = rootBindingPath + "settings.serializedVtxFormats.Array.data[" + (4 + i) + "]";
-					uvFields[i].BindProperty(settings);
-					vertexSettings.contentContainer.Add(uvFields[i]);
+					VisualElement uvField = VtxCompressionOption("UV" + i, settings, rootBindingPath, i + 4, uvFmtsInt);
+					vertexSettings.contentContainer.Add(uvField);
 				}
 
 
@@ -245,15 +281,50 @@ namespace SLZ.CustomStaticBatching.Editor
 				toggleGroup.SetEnabled(evt.newValue);
 			}
 			
-			private PopupField<int> VtxCompressionOption(string name, List<int> options)
+			private VisualElement VtxCompressionOption(string name, SerializedObject settings, string rootPath, int index, List<int> options)
 			{
+				VisualElement vtxOptions = new VisualElement();
+
+				vtxOptions.style.flexGrow = 1;
+				vtxOptions.style.flexDirection = FlexDirection.Row;
+				vtxOptions.style.flexGrow = 1;
+				vtxOptions.style.alignItems = Align.Stretch;
+				vtxOptions.style.flexShrink = 1;
+				vtxOptions.style.flexBasis = StyleKeyword.Auto;
+
+				Label label = new Label(name);
+				label.style.flexGrow = 0.4f;
+				label.style.flexBasis = 0.4f;
+				label.style.flexShrink = 0.4f;
+				label.style.textOverflow = TextOverflow.Ellipsis;
+				label.style.overflow = Overflow.Hidden;
+				label.style.unityTextOverflowPosition = TextOverflowPosition.End;
+
+				Toggle toggle = new Toggle();
+				toggle.bindingPath = rootPath + "settings.altStream.Array.data[" + index + "]";
+				toggle.BindProperty(settings);
+				toggle.style.flexGrow = 0.6f;
+				toggle.style.flexBasis = 0.6f;
+				toggle.style.flexShrink = 0.6f;
+				toggle.style.flexDirection = FlexDirection.Row;
+
 				PopupField<int> popup = new PopupField<int>();
 				popup.formatListItemCallback = (int b) => { return VtxFormatNames[b]; };
 				popup.formatSelectedValueCallback = (int b) => { return VtxFormatNames[b]; };
 				popup.choices = options;
-				popup.label = name;
-				SetToggleStyle(popup);
-				return popup;
+				popup.bindingPath = rootPath + "settings.serializedVtxFormats.Array.data[" + index + "]";
+				popup.BindProperty(settings);
+				popup.style.flexGrow = 1f;
+				popup.style.flexBasis = 1;
+				popup.style.flexShrink = 1f;
+				popup.style.flexDirection = FlexDirection.Row;
+
+				vtxOptions.Add(label); 
+				vtxOptions.Add(toggle);
+				vtxOptions.Add(popup);
+				//popup.label = name;
+
+				return vtxOptions;
 			}
 		}
 		static void SetToggleStyle(VisualElement el)

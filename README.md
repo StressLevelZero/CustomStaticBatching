@@ -36,10 +36,10 @@ It works by using using the IProcessScene callback to modify the temporary copy 
 
 - Add a batching zone component to give the user control over the spatial sorting rather than simply relying on a global hilbert index. Objects within each zone will calculate their hilbert index relative to the bounds of the zone rather than the bounds of the scene. Allow the user to specify the sorting order of the zones, or sort using a BVH?
 
-- Add support for 32-bit index buffer combined meshes and input meshes. How do we handle switching between 32-bit indices and 16 bit? Index buffers are enormous, 16-bit indices should be used whenever possible. Maybe just group 32-bit index input meshes into their own combined mesh? 
+- ~~Add support for 32-bit index buffer combined meshes and input meshes. How do we handle switching between 32-bit indices and 16 bit? Index buffers are enormous, 16-bit indices should be used whenever possible. Maybe just group 32-bit index input meshes into their own combined mesh? ~~ Done, 32-bit meshes are put into separate combined mesh objects to avoid inflating the index buffer size of 16-bit meshes
 
-- Add a settings asset to allow controlling the specifics of the mesh combining globally or per-scene, like specifying the data formats used for each member of the combined mesh's vertex struct or splitting the vertex buffer into separate position and everything else buffers.
+- ~~Add a settings asset to allow controlling the specifics of the mesh combining globally or per-scene, like specifying the data formats used for each member of the combined mesh's vertex struct or splitting the vertex buffer into separate position and everything else buffers.~~ Mostly done, no-per scene setting but there are now global settings in the preferences menu
 
-- Add support for split vertex buffers
+- ~~Add support for split vertex buffers~~ Done, added support for 2 separate buffers for mobile, with options to set what attributes go into the second buffer in the settings
 
 - Add an option to automatically split static renderers with multiple materials into multiple single material meshes and renderers

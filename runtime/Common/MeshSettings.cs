@@ -24,11 +24,10 @@ namespace SLZ.CustomStaticBatching
 		public bool allow32bitIdx;
 		public int maxCombined32Idx;
 		public bool splitMultiMaterialMeshes;
+		public bool[] altStream;
 
 		public CombineRendererSettings(bool initialize)
 		{
-
-			
 			serializedVtxFormats = new byte[PackedChannel.NUM_VTX_CHANNELS];
 			if (initialize)
 			{
@@ -37,7 +36,7 @@ namespace SLZ.CustomStaticBatching
 					serializedVtxFormats[i] = (byte)PackedChannel.VtxFormats.Float32;
 				}
 			}
-
+			altStream = new bool[PackedChannel.NUM_VTX_CHANNELS];
 			allow32bitIdx = true;
 			splitMultiMaterialMeshes = false;
 			maxCombined32Idx = 1 << 23;

@@ -28,11 +28,9 @@ namespace SLZ.CustomStaticBatching
 
 	public class SBCombineMeshList
 	{
-		
 
-		public VtxFormats[] vertexFormatCompression;
-		public bool allow32bitIdx;
-		public int max32bitIdx = 2<<23;
+		CombineRendererSettings crs;
+		public CombineRendererSettings settings { get => crs; set => crs = value; }
 		public ComputeShader transferVtxBufferCompute;
 
 
@@ -40,11 +38,7 @@ namespace SLZ.CustomStaticBatching
 
 		public SBCombineMeshList(ComputeShader transferVtxComputeShader)
 		{
-			vertexFormatCompression = new VtxFormats[NUM_VTX_CHANNELS];
-			for (int i = 0; i < vertexFormatCompression.Length; i++)
-			{
-				vertexFormatCompression[i] = VtxFormats.Float32;
-			}
+			crs = new CombineRendererSettings(true);
 			transferVtxBufferCompute = transferVtxComputeShader;
 		}
 
@@ -149,8 +143,8 @@ namespace SLZ.CustomStaticBatching
 			meshGroupBeginIdx = rIdx;
 			vertexCount = 0;
 			largeIdxBinStart = cMeshIdxRange.Count;
-
-			if (allow32bitIdx)
+			int max32Vtx = crs.maxCombined32Idx;
+			if (crs.allow32bitIdx)
 			{
 				int largeIdxStart = rIdx;
 			
@@ -160,7 +154,7 @@ namespace SLZ.CustomStaticBatching
 
 					int meshVertexCount = m.vertexCount;
 					vertexCount += meshVertexCount;
-					if (vertexCount >= max32bitIdx)
+					if (vertexCount > max32Vtx)
 					{
 						cMeshIdxRange.Add(new int2(meshGroupBeginIdx, rIdx));
 						currentMeshIdx++;
@@ -187,7 +181,7 @@ namespace SLZ.CustomStaticBatching
 		public void SerialGetUniqueMeshes(RendererData[] renderers, out List<Mesh> meshList, out int[] renderer2Mesh)
 		{
 			meshList = new List<Mesh>(renderers.Length);
-			Debug.Log("Num Renderers: " + renderers.Length);
+			//Debug.Log("Num Renderers: " + renderers.Length);
 			Dictionary<Mesh, int> meshListIndex = new Dictionary<Mesh, int>(renderers.Length);
 			renderer2Mesh = new int[renderers.Length];
 			for (int i = 0; i < renderers.Length; i++)
@@ -452,6 +446,9 @@ namespace SLZ.CustomStaticBatching
 			//Debug.Log("Unique Mesh count in combined mesh: " +  meshIdxCount);
 			NativeArray<PackedChannel> combinedFormat = new NativeArray<PackedChannel>(NUM_VTX_CHANNELS, Allocator.TempJob);
 			Span<int> minTypeLUT = stackalloc int[] { 1, 4, 4, 2, 1 };
+			Span<bool> useAltStream = stackalloc bool[12];
+			crs.altStream.CopyTo(useAltStream);
+			int altStreamFlag = 1 << 24;
 			for (int mesh = 0; mesh < meshIdxCount; mesh++)
 			{
 				int meshPtr = meshIndex[mesh] * NUM_VTX_CHANNELS;
@@ -460,33 +457,44 @@ namespace SLZ.CustomStaticBatching
 					PackedChannel a = combinedFormat[channel];
 					PackedChannel b = meshChannels[meshPtr + channel];
 					int largestFmt = math.max((int)a.format, (int)b.format);
-					largestFmt = math.min(largestFmt, (int)vertexFormatCompression[channel]);
+					largestFmt = math.min(largestFmt, (int)crs.serializedVtxFormats[channel]);
 
 					int maxDim = math.max((int)a.dimension, (int)b.dimension);
 					int roundDim = minTypeLUT[largestFmt];
 					maxDim = ((maxDim + roundDim - 1) / roundDim) * roundDim;
-					combinedFormat[channel] = new PackedChannel { packedData = (uint)(maxDim | (largestFmt << 8)) };
+					int stream = useAltStream[channel] ? altStreamFlag : 0;
+					combinedFormat[channel] = new PackedChannel { packedData = (uint)(maxDim | (largestFmt << 8) | stream) };
 				}
 			}
 
 			// Add a lightmap UV1 if one or more of the input renderers are either static or dynamic lightmapped but none of the inputs have UV1's
 			if ((isLightmapped || isDynamicLightmapped) && combinedFormat[5].dimension == 0)
 			{
-				combinedFormat[5] = new PackedChannel() { dimension = 2, format = (byte)vertexFormatCompression[5] };
+				combinedFormat[5] = new PackedChannel() { dimension = 2, format = crs.serializedVtxFormats[5], stream = combinedFormat[5].stream };
 			}
 			// Add a dynamic lightmap UV2 if there are dynamic lightmapped renderers in the input, but none of the inputs have UV2's
 			if (isDynamicLightmapped && combinedFormat[6].dimension == 0)
 			{
 				
-				combinedFormat[6] = new PackedChannel() { dimension = 2, format = (byte)vertexFormatCompression[6] };
+				combinedFormat[6] = new PackedChannel() { dimension = 2, format = crs.serializedVtxFormats[6], stream = combinedFormat[6].stream };
 			}
 
 			uint cumulativeOffset = 0;
+			uint cumulativeOffset2 = 0;
 			ReadOnlySpan<byte> vtxFmtToBytes = PackedChannel.VtxFmtToBytes;
 			for (int channel = 0; channel < NUM_VTX_CHANNELS; channel++)
 			{
-				combinedFormat[channel] = new PackedChannel { packedData = combinedFormat[channel].packedData | (cumulativeOffset << 16) };
-				cumulativeOffset = (cumulativeOffset + (uint)vtxFmtToBytes[combinedFormat[channel].format] * combinedFormat[channel].dimension);
+				
+				if (useAltStream[channel])
+				{
+					combinedFormat[channel] = new PackedChannel { packedData = combinedFormat[channel].packedData | (cumulativeOffset2 << 16) };
+					cumulativeOffset2 = (cumulativeOffset2 + (uint)vtxFmtToBytes[combinedFormat[channel].format] * combinedFormat[channel].dimension);
+				}
+				else
+				{
+					combinedFormat[channel] = new PackedChannel { packedData = combinedFormat[channel].packedData | (cumulativeOffset << 16) };
+					cumulativeOffset = (cumulativeOffset + (uint)vtxFmtToBytes[combinedFormat[channel].format] * combinedFormat[channel].dimension);
+				}
 			}
 			return combinedFormat;
 		}
@@ -538,7 +546,7 @@ namespace SLZ.CustomStaticBatching
 			{
 				if (packedChannels[i].dimension != 0)
 				{
-					vertexAttributes.Add(new VertexAttributeDescriptor((VertexAttribute)i, formatLUT[packedChannels[i].format], packedChannels[i].dimension, 0));
+					vertexAttributes.Add(new VertexAttributeDescriptor((VertexAttribute)i, formatLUT[packedChannels[i].format], packedChannels[i].dimension, packedChannels[i].stream));
 				}
 			}
 			Mesh combinedMesh = new Mesh();
@@ -963,11 +971,13 @@ namespace SLZ.CustomStaticBatching
 
 		
 			int combinedStride = combinedMesh.GetVertexBufferStride(0);
+			int combinedStride2 = combinedMesh.GetVertexBufferStride(1);
 			NativeArray<byte> combinedMeshVert = new NativeArray<byte>(combinedStride * combinedMesh.vertexCount, Allocator.TempJob);
-
-			int4 strideOut = new int4(combinedStride, 0, 0, 0);
+			NativeArray<byte> combinedMeshVert2 = new NativeArray<byte>(combinedStride2 * combinedMesh.vertexCount, Allocator.TempJob);
+			int4 strideOut = new int4(combinedStride, combinedStride2, 0, 0);
 			
 			int combinedMeshCopyIndex = 0;
+			int combinedMeshCopyIndex2 = 0;
 			int numMeshesCopied = 0;
 
 			FixedList32Bytes<uint> formatToBytes = new FixedList32Bytes<uint>() { 1, 1, 1, 2, 4 };
@@ -979,13 +989,19 @@ namespace SLZ.CustomStaticBatching
 				int meshIdx = renderer2Mesh[renderer];
 				
 				int stride = meshList[meshIdx].GetVertexBufferStride(0);
+				int stride2 = meshList[meshIdx].GetVertexBufferStride(1);
+				bool hasSecondBuffer = stride2 > 0;
+				if (!hasSecondBuffer) stride2 = 1; // max of 1, so we can store the sign of the tangent in this value even if there is no second buffer
 				//Debug.Log("single Mesh Stride = " + stride);
 				int tanSign = rendererScaleSign[renderer] > 0 ? 1 : -1;
 				NativeArray<PackedChannel>.Copy(meshPackedChannels, NUM_VTX_CHANNELS * meshIdx, meshPackedChannels2, 0, NUM_VTX_CHANNELS);
+				
 				for (int i = 0; i < NUM_VTX_CHANNELS; i++)
 				{
+				
 					Debug.Assert(meshPackedChannels2[i].offset % 4 == 0, "offset not aligned on 4 bytes, failure!");
 				}
+
 				// Handle lightmapped meshes where uv0 is being used as the lightmap UV. Set UV1's packed data to be UV0's so it just copies UV0 to UV1
 				// Also handle the dynamic lightmap. If UV2 is missing and there's no UV2 in the output, its using UV1 
 				bool missingLM = hasLightmap && meshPackedChannels2[5].dimension == 0;
@@ -1003,23 +1019,27 @@ namespace SLZ.CustomStaticBatching
 						meshPackedChannels2[6] = meshPackedChannels2[5].dimension == 0 ? meshPackedChannels2[4] : meshPackedChannels2[5];
 					}
 				}
-
+				NativeArray<byte> inVert = meshList[meshIdx].GetVertexData<byte>(0);
 				TransferVtxBuffer vtxJob = new TransferVtxBuffer
 				{
-					vertIn = meshList[meshIdx].GetVertexData<byte>(0),
+					vertIn = inVert,
+					vertIn2 = hasSecondBuffer ? meshList[meshIdx].GetVertexData<byte>(1) : inVert,
 					vertOut = combinedMeshVert,
+					vertOut2 = combinedMeshVert2,
 					ObjectToWorld = rd[renderer].rendererTransform.localToWorldMatrix,
 					WorldToObject = rd[renderer].rendererTransform.worldToLocalMatrix,
 					lightmapScaleOffset = new float4(rd[renderer].meshRenderer.lightmapScaleOffset),
 					dynLightmapScaleOffset = new float4(rd[renderer].meshRenderer.realtimeLightmapScaleOffset),
-					offset_strideIn_TanSign = new int4(combinedMeshCopyIndex, stride, tanSign, 0),
+					offset_strideIn_offset2_strideIn2 = new int4(combinedMeshCopyIndex, stride, combinedMeshCopyIndex2, stride2 * tanSign),
 					inPackedChannelInfo = meshPackedChannels2,
 					strideOut = strideOut,
 					outPackedChannelInfo = combinedPackedChannels,
 					formatToBytes = formatToBytes,
 				};
 				int vertexCount = meshList[meshIdx].vertexCount;
+				
 				combinedMeshCopyIndex += combinedStride * vertexCount;
+				combinedMeshCopyIndex2 += combinedStride2 * vertexCount;
 
 				JobHandle vtxJobHandle = vtxJob.Schedule(vertexCount, 16);
 				vtxJobHandle.Complete();
@@ -1029,9 +1049,14 @@ namespace SLZ.CustomStaticBatching
 			}
 
 			combinedMesh.SetVertexBufferData<byte>(combinedMeshVert, 0, 0, combinedMeshVert.Length, 0, MeshUpdateFlags.DontValidateIndices | MeshUpdateFlags.DontRecalculateBounds | MeshUpdateFlags.DontNotifyMeshUsers | MeshUpdateFlags.DontResetBoneBounds);
+			if (combinedStride2 > 0)
+			{
+				combinedMesh.SetVertexBufferData<byte>(combinedMeshVert2, 0, 0, combinedMeshVert2.Length, 1, MeshUpdateFlags.DontValidateIndices | MeshUpdateFlags.DontRecalculateBounds | MeshUpdateFlags.DontNotifyMeshUsers | MeshUpdateFlags.DontResetBoneBounds);
+			}
 			combinedMesh.UploadMeshData(true);
 			meshPackedChannels2.Dispose();
 			combinedMeshVert.Dispose();
+			combinedMeshVert2.Dispose();
 		}
 
 
