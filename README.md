@@ -24,7 +24,7 @@ It works by using using the IProcessScene callback to modify the temporary copy 
 	- (TODO) the batching zone volume containing the renderer
 	- the hilbert index of the renderer's bounds center
 - Determine the vertex struct layout of all the meshes.
-- Bin the sorted meshes into appropriately sized groups (currently assumes 16 bit index buffers, so bins containing >0xFFFF vertices)
+- Bin the sorted meshes into appropriately sized groups
 - For each combined mesh, determine the union of the input meshes' vertex struct members and the minimumum dimension and format of each that can contain every mesh's data.
 - Generate the index buffer for each combined mesh
 - Copy and translate the vertex data of each renderer into their combined mesh
@@ -36,7 +36,7 @@ It works by using using the IProcessScene callback to modify the temporary copy 
 
 - Add a batching zone component to give the user control over the spatial sorting rather than simply relying on a global hilbert index. Objects within each zone will calculate their hilbert index relative to the bounds of the zone rather than the bounds of the scene. Allow the user to specify the sorting order of the zones, or sort using a BVH?
 
-- ~~Add support for 32-bit index buffer combined meshes and input meshes. How do we handle switching between 32-bit indices and 16 bit? Index buffers are enormous, 16-bit indices should be used whenever possible. Maybe just group 32-bit index input meshes into their own combined mesh? ~~ Done, 32-bit meshes are put into separate combined mesh objects to avoid inflating the index buffer size of 16-bit meshes
+- ~~Add support for 32-bit index buffer combined meshes and input meshes. How do we handle switching between 32-bit indices and 16 bit? Index buffers are enormous, 16-bit indices should be used whenever possible. Maybe just group 32-bit index input meshes into their own combined mesh?~~ Done, 32-bit meshes are put into separate combined mesh objects to avoid inflating the index buffer size of 16-bit meshes
 
 - ~~Add a settings asset to allow controlling the specifics of the mesh combining globally or per-scene, like specifying the data formats used for each member of the combined mesh's vertex struct or splitting the vertex buffer into separate position and everything else buffers.~~ Mostly done, no-per scene setting but there are now global settings in the preferences menu
 
