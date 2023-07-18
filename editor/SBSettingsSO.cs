@@ -1,18 +1,6 @@
-using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
-using UnityEditor.Search;
-using UnityEngine.UIElements;
-using System.Reflection;
-using Unity.Plastic.Newtonsoft.Json.Serialization;
-using System;
-using UnityEditor.UIElements;
-using UnityEditor.Toolbars;
-using Unity.Collections.LowLevel.Unsafe;
 using UnityEditor.Build;
-
-using System.Linq;
-
 using UnityEditor;
 
 namespace SLZ.CustomStaticBatching.Editor
