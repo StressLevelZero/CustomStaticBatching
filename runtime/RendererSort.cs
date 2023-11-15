@@ -210,6 +210,9 @@ namespace SLZ.CustomStaticBatching
 	public static class RendererSort
 	{
 		static readonly ProfilerMarker profileSortRenderers = new ProfilerMarker("CustomStaticBatching.SortRenderers");
+		static readonly ProfilerMarker profileGetRenderersSortData = new ProfilerMarker("CustomStaticBatching.GetRenderersSortData");
+		static readonly ProfilerMarker profileGetRenderersHilbertIdx = new ProfilerMarker("CustomStaticBatching.GetRenderersHilbertIdx");
+		static readonly ProfilerMarker profileGetMaterials = new ProfilerMarker("CustomStaticBatching.profileGetMaterials");
 
 		/// <summary>
 		/// Given a list of mesh renderers and a corresponding list of mesh filters, creates an array of renderer data sorted for static batching
@@ -221,18 +224,23 @@ namespace SLZ.CustomStaticBatching
 		{
 			profileSortRenderers.Begin();
 
+			profileGetMaterials.Begin();
 			// Get an array of unique materials referenced by the renderers, and a mapping from a renderer to the index of its first material in the unique array
 			int[] rendererToMaterial;
 			Material[] uniqueMats;
 			GetUniqueMaterials(meshRenderers, out rendererToMaterial, out uniqueMats);
+			profileGetMaterials.End();
 
 			// For each unique material, get a hash of the material, a hash of the shader it uses, and a hash of the enabled keywords on the material
 			MaterialAndShaderID[] matShaderIds = GetMaterialAndShaderIDs(uniqueMats, rendererToMaterial);
 
+			profileGetRenderersHilbertIdx.Begin();
 			// Get the hilbert index of the bounds center of each mesh renderer, in the cubic bounding box that encapsulates all the static meshes to be combined.
 			// TODO: Also pass batching volumes and a BVH tree to accelerate finding the appropriate batching volume for each mesh
 			NativeArray<UInt64> hilbertIdxs = GetHilbertIdxs(meshRenderers);
+			profileGetRenderersHilbertIdx.End();
 
+			profileGetRenderersSortData.Begin();
 			// Generate an array of data for each renderer that will be used to sort the renderers.
 			int numRenderers = meshRenderers.Count;
 			NativeArray<RendererSortItem> rendererSortItems = new NativeArray<RendererSortItem>(numRenderers, Allocator.TempJob);
@@ -241,13 +249,14 @@ namespace SLZ.CustomStaticBatching
 			{
 				MeshRenderer mr = meshRenderers[i];
 				int materialIdx = rendererToMaterial[i];
-				mr.GetClosestReflectionProbes(closestProbes);
-				int numClosest = closestProbes.Count;
+
 				// I was going to sort on probe ID's, but it seems to break batching worse than not? Sorting spatially should ensure the probe indices is also mostly sorted anyways.
+				//mr.GetClosestReflectionProbes(closestProbes);
+				//int numClosest = closestProbes.Count;
 				//ReadOnlySpan<int> probeHash = stackalloc int[2] { 
 				//	numClosest > 1 ? closestProbes[1].probe.GetHashCode() : -0x7fffffff,
 				//	numClosest > 0 ? closestProbes[0].probe.GetHashCode() : -0x7fffffff}; // Assumes little-endian
-				closestProbes.Clear();
+				//closestProbes.Clear();
 				ushort breakingState = (ushort)((mr.sharedMaterials.Length > 1 ? 0x4000u : 0u) + (mr.gameObject.activeInHierarchy && mr.enabled ? 0u : 1u));
 				rendererSortItems[i] = new RendererSortItem
 				{
@@ -263,6 +272,7 @@ namespace SLZ.CustomStaticBatching
 				};
 			}
 			hilbertIdxs.Dispose();
+			profileGetRenderersSortData.End();
 
 			// Sort the renderers using the Collection's package extensions for NativeArray sorting
 			var sortJob = NativeSortExtension.SortJob(rendererSortItems);

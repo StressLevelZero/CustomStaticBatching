@@ -24,6 +24,12 @@ namespace SLZ.CustomStaticBatching.Editor
 			cml.settings = settings;
 		}
 
+		public static void FetchTargetProjectSettings(this SBCombineMeshList cml, BuildTarget target)
+		{
+			CombineRendererSettings settings = SBSettingsSO.GlobalSettings.GetBuildTargetSettings(target);
+			cml.settings = settings;
+		}
+
 		const string transferVtxGUID = "5bae5a4c97f51964dbc10d3398312270";
 
 		public static ComputeShader GetTransferVtxComputeShader()
@@ -79,7 +85,7 @@ namespace SLZ.CustomStaticBatching.Editor
 
 			// Get a list of the meshes used in the scene, and a mapping from the list of renderers to the list of meshes
 			profilerGetUniqueMeshes.Begin();
-			cml.ParallelGetUniqueMeshes(sortedRenderers, out uniqueMeshList, out uniqueMeshData, out renderer2Mesh);
+			ParallelGetUniqueMeshes(sortedRenderers, out uniqueMeshList, out uniqueMeshData, out renderer2Mesh);
 			profilerGetUniqueMeshes.End();
 
 
@@ -87,7 +93,7 @@ namespace SLZ.CustomStaticBatching.Editor
 			NativeArray<PackedChannel> uniqueMeshLayout;
 			NativeArray<byte> invalidMeshes;
 			profilerGetMeshLayout.Begin();
-			cml.ParallelGetMeshLayout(uniqueMeshData, out uniqueMeshLayout, out invalidMeshes);
+			ParallelGetMeshLayout(uniqueMeshData, out uniqueMeshLayout, out invalidMeshes);
 			profilerGetMeshLayout.End();
 
 			// Shift all the renderers with valid meshes to the front of the array
@@ -187,6 +193,57 @@ namespace SLZ.CustomStaticBatching.Editor
 					EditorUtility.SetDirty(go);
 					submeshIdx += submeshCount;
 			}
+		}
+
+
+		public static RendererData[] GetSortedRendererData(List<MeshRenderer> renderers, SBCombineMeshList combiner)
+		{
+			int numRenderers = renderers.Count;
+			int rendererIdx = 0;
+			bool allow32bitIdxBatches = combiner.settings.allow32bitIdx;
+			List<MeshFilter> meshFilters = new List<MeshFilter>(numRenderers);
+			for (int i = 0; i < numRenderers; i++)
+			{
+				MeshRenderer mr = renderers[i];
+				GameObject go = mr.gameObject;
+				if (!GameObjectUtility.AreStaticEditorFlagsSet(go, StaticEditorFlags.BatchingStatic))
+				{
+					continue;
+				}
+
+				MeshFilter mf = go.GetComponent<MeshFilter>();
+
+				if (mf == null || mf.sharedMesh == null)
+				{
+					continue;
+				}
+
+
+				if (!allow32bitIdxBatches && mf.sharedMesh.indexFormat == UnityEngine.Rendering.IndexFormat.UInt32)
+				{
+					continue;
+				}
+
+				if (mr.sharedMaterials.Length == 0 || mr.sharedMaterials[0] == null)
+				{
+					continue;
+				}
+
+				renderers[rendererIdx] = mr;
+				meshFilters.Add(mf);
+				rendererIdx++;
+			}
+			if (numRenderers != rendererIdx) renderers.RemoveRange(rendererIdx, numRenderers - rendererIdx);
+			renderers.TrimExcess();
+			meshFilters.TrimExcess();
+
+			//if (renderers.Count < 2)
+			//{
+			//	return new RendererData[0];
+			//}
+
+			RendererData[] sortedData = RendererSort.GetSortedData(renderers, meshFilters);
+			return sortedData;
 		}
 	}
 }

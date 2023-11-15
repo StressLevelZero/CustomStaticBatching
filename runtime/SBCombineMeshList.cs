@@ -178,7 +178,7 @@ namespace SLZ.CustomStaticBatching
 		/// <param name="renderers">Array of renderer structs from which to generate the list of unique meshes</param>
 		/// <param name="meshList">output list of unique meshes</param>
 		/// <param name="renderer2Mesh">Array that maps each index of the renderer array to an index in the unique mesh list</param>
-		public void SerialGetUniqueMeshes(RendererData[] renderers, out List<Mesh> meshList, out int[] renderer2Mesh)
+		public static void SerialGetUniqueMeshes(RendererData[] renderers, out List<Mesh> meshList, out int[] renderer2Mesh)
 		{
 			meshList = new List<Mesh>(renderers.Length);
 			//Debug.Log("Num Renderers: " + renderers.Length);
@@ -206,7 +206,7 @@ namespace SLZ.CustomStaticBatching
 		/// <param name="meshList">output list of unique meshes</param>
 		/// <param name="meshDataArray">output array of readonly meshdata structs for use by the jobs system</param>
 		/// <param name="renderer2Mesh">Array that maps each index of the renderer array to an index in the unique mesh list</param>
-		public void ParallelGetUniqueMeshes(RendererData[] renderers, out List<Mesh> meshList, out Mesh.MeshDataArray meshDataArray, out int[] renderer2Mesh)
+		public static void ParallelGetUniqueMeshes(RendererData[] renderers, out List<Mesh> meshList, out Mesh.MeshDataArray meshDataArray, out int[] renderer2Mesh)
 		{
 			SerialGetUniqueMeshes(renderers, out meshList, out renderer2Mesh);
 #if UNITY_EDITOR
@@ -228,7 +228,7 @@ namespace SLZ.CustomStaticBatching
 		/// <param name="meshList">List of meshes to get the channel information of</param>
 		/// <param name="meshChannels">output array of packed channel information. The index of each element divided by 12 is the index of the mesh it corresponds to</param>
 		/// <param name="invalidMeshes">outupt array of flags that correspond to each mesh in the mesh list. If the value is 1, the mesh has incompatible channel formats and can't be combined</param>
-		internal void SerialGetMeshLayout(List<Mesh> meshList, out NativeArray<PackedChannel> meshChannels, out NativeArray<byte> invalidMeshes)
+		public static void SerialGetMeshLayout(List<Mesh> meshList, out NativeArray<PackedChannel> meshChannels, out NativeArray<byte> invalidMeshes)
 		{
 			int numMeshes = meshList.Count;
 			meshChannels = new NativeArray<PackedChannel>(NUM_VTX_CHANNELS * numMeshes, Allocator.Temp);
@@ -275,7 +275,7 @@ namespace SLZ.CustomStaticBatching
 		/// <param name="meshDataArray">Array of mesh data to get the channel information of</param>
 		/// <param name="meshChannels">output array of packed channel information. The index of each element divided by 12 is the index of the mesh it corresponds to</param>
 		/// <param name="invalidMeshes">outupt array of flags that correspond to each mesh in the mesh list. If the value is 1, the mesh has incompatible channel formats and can't be combined</param>
-		internal void ParallelGetMeshLayout(Mesh.MeshDataArray meshDataArray, out NativeArray<PackedChannel> meshChannels, out NativeArray<byte> invalidMeshes)
+		public static void ParallelGetMeshLayout(Mesh.MeshDataArray meshDataArray, out NativeArray<PackedChannel> meshChannels, out NativeArray<byte> invalidMeshes)
 		{
 			meshChannels = new NativeArray<PackedChannel>(NUM_VTX_CHANNELS * meshDataArray.Length, Allocator.Persistent);
 			invalidMeshes = new NativeArray<byte>(meshDataArray.Length, Allocator.TempJob);
@@ -345,7 +345,7 @@ namespace SLZ.CustomStaticBatching
 		/// <param name="renderers"></param>
 		/// <param name="renderer2Mesh"></param>
 		/// <returns>The number of valid meshes in the array</returns>
-		internal int CleanInvalidRenderers(NativeArray<byte> invalidMeshes, RendererData[] renderers, int[] renderer2Mesh)
+		public int CleanInvalidRenderers(NativeArray<byte> invalidMeshes, RendererData[] renderers, int[] renderer2Mesh)
 		{
 			int numRenderers = renderers.Length;
 			int p = 0;
@@ -368,7 +368,7 @@ namespace SLZ.CustomStaticBatching
 		/// </summary>
 		/// <param name="rd"></param>
 		/// <returns></returns>
-		internal NativeArray<byte> GetRendererScaleSign(RendererData[] rd)
+		public NativeArray<byte> GetRendererScaleSign(RendererData[] rd)
 		{
 			NativeArray<byte> scaleSign = new NativeArray<byte>(rd.Length, Allocator.TempJob);
 			NativeArray<float3x3> object2World = new NativeArray<float3x3>(rd.Length, Allocator.TempJob);
@@ -405,7 +405,7 @@ namespace SLZ.CustomStaticBatching
 			public NativeArray<PackedChannel> meshChannels;
 			public NativeArray<byte> invalidMeshes;
 		}
-		internal NativeArray<PackedChannel> GetCombinedMeshLayout(
+		public NativeArray<PackedChannel> GetCombinedMeshLayout(
 			RendererData[] renderers,
 			ref NativeArray<PackedChannel> meshChannels,
 			int[] renderer2Mesh,
@@ -506,6 +506,20 @@ namespace SLZ.CustomStaticBatching
 			public int[] submeshCount;
 		}
 
+		public static VertexAttributeDescriptor[] VtxAttrDescFromPacked(NativeArray<PackedChannel> packedChannels)
+		{
+			List<VertexAttributeDescriptor> vertexAttributes = new List<VertexAttributeDescriptor>(NUM_VTX_CHANNELS);
+			ReadOnlySpan<VertexAttributeFormat> formatLUT = PackedChannel.ToUnityFormatLUT;
+			for (int i = 0; i < NUM_VTX_CHANNELS; i++)
+			{
+				if (packedChannels[i].dimension != 0)
+				{
+					vertexAttributes.Add(new VertexAttributeDescriptor((VertexAttribute)i, formatLUT[packedChannels[i].format], packedChannels[i].dimension, packedChannels[i].stream));
+				}
+			}
+			return vertexAttributes.ToArray();
+		}
+
 		/// <summary>
 		/// Generates a Unity Mesh for a list of renderers. Generates the combined index buffer, sets the submesh descriptors, 
 		/// calculates the worldspace bounds of each submesh, and flips the winding order for negatively scaled meshes.
@@ -517,7 +531,7 @@ namespace SLZ.CustomStaticBatching
 		/// <param name="packedChannels">An array of dimension NUM_VTX_CHANNELS (currently 12) that contains a description of the vertex attribute format and dimension of each possible channel in the output mesh</param>
 		/// <param name="rendererScaleSign">An array of bytes that indicates if the renderer of the corresponding index has been scaled negatively. If so, the winding order of the indices in the combined mesh must be reversed</param>
 		/// <returns></returns>
-		internal Mesh GetCombinedMeshObject<T>(RendererData[] rd, MeshDataArray uniqueMeshList, int2 rendererRange, int[] renderer2Mesh, ref NativeArray<PackedChannel> packedChannels, ref NativeArray<byte> rendererScaleSign, bool highPidxBuffer)
+		public Mesh GetCombinedMeshObject<T>(RendererData[] rd, MeshDataArray uniqueMeshList, int2 rendererRange, int[] renderer2Mesh, ref NativeArray<PackedChannel> packedChannels, ref NativeArray<byte> rendererScaleSign, bool highPidxBuffer)
 		where T : unmanaged
 		{
 			Assert.IsTrue(typeof(T) == typeof(int) || typeof(T) == typeof(ushort), "GetCombinedMeshObject can only use ushort and int types!");
@@ -745,7 +759,7 @@ namespace SLZ.CustomStaticBatching
 		/// <typeparam name="T">Type of the index buffer, assumed to be int or ushort</typeparam>
 		/// <typeparam name="TConverter">Struct implementing the IGenericInt interface for T, to provide the method adding an int and T</typeparam>
 		[BurstCompile]
-		struct OffsetFlipIndexBuffer<T, TConverter> : IJobParallelFor
+		public struct OffsetFlipIndexBuffer<T, TConverter> : IJobParallelFor
 			where T : unmanaged 
 			where TConverter : IGenericInt<T>
 		{
@@ -807,7 +821,7 @@ namespace SLZ.CustomStaticBatching
 
 
 		[BurstCompile]
-		struct TransformSubmeshBounds : IJobParallelFor
+		public struct TransformSubmeshBounds : IJobParallelFor
 		{
 			public NativeArray<Bounds> bounds;
 			[ReadOnly]
@@ -952,8 +966,9 @@ namespace SLZ.CustomStaticBatching
 			int numBytes = combinedMesh.GetVertexBufferStride(0) * combinedMesh.vertexCount;
 			NativeArray<byte> bufferBytes = new NativeArray<byte>(numBytes, Allocator.Persistent);
 			AsyncGPUReadbackRequest request = AsyncGPUReadback.RequestIntoNativeArray<byte>(ref bufferBytes, combinedMeshBuffer);
+#if UNITY_2022_2_OR_NEWER
 			request.forcePlayerLoopUpdate = true;
-
+#endif
 			AsyncMeshReadbackData readbackInfo = new AsyncMeshReadbackData() { request = request, gpuBuffer = combinedMeshBuffer, cpuBuffer = bufferBytes };
 
 			return readbackInfo;
