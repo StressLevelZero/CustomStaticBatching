@@ -1058,7 +1058,7 @@ namespace SLZ.CustomStaticBatching
 
                 JobHandle vtxJobHandle = vtxJob.Schedule(vertexCount, 16);
                 vtxJobHandle.Complete();
-                vtxJob.vertIn.Dispose();
+                //vtxJob.vertIn.Dispose(); // Can cause an error? Somehow, the array is already disposed of sometimes. Anyways, I don't need to dispose of this as its just a view into the mesh's buffer.
                 numMeshesCopied++;
 
             }
@@ -1069,16 +1069,16 @@ namespace SLZ.CustomStaticBatching
                 combinedMesh.SetVertexBufferData<byte>(combinedMeshVert2, 0, 0, combinedMeshVert2.Length, 1, MeshUpdateFlags.DontValidateIndices | MeshUpdateFlags.DontRecalculateBounds | MeshUpdateFlags.DontNotifyMeshUsers | MeshUpdateFlags.DontResetBoneBounds);
             }
 
-			//for (int uvIdx = 4; uvIdx < 12; uvIdx++)
-			//{
-			//    if (combinedPackedChannels[uvIdx].dimension > 0)
-			//    {
-			//        combinedMesh.RecalculateUVDistributionMetric(uvIdx - 4);
-			//    }
-			//}
-			combinedMesh.RecalculateUVDistributionMetrics();
+            //for (int uvIdx = 4; uvIdx < 12; uvIdx++)
+            //{
+            //    if (combinedPackedChannels[uvIdx].dimension > 0)
+            //    {
+            //        combinedMesh.RecalculateUVDistributionMetric(uvIdx - 4);
+            //    }
+            //}
+            combinedMesh.RecalculateUVDistributionMetrics();
 
-			combinedMesh.UploadMeshData(true);
+            combinedMesh.UploadMeshData(true);
             meshPackedChannels2.Dispose();
             combinedMeshVert.Dispose();
             combinedMeshVert2.Dispose();
