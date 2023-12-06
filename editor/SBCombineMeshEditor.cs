@@ -189,19 +189,20 @@ namespace SLZ.CustomStaticBatching.Editor
 			for (int i = rendererRange.x; i < rendererRange.y; i++)
 			{
 				rd[i].meshFilter.sharedMesh = combinedMesh;
-				//mrArray[0] = rd[i].meshRenderer;
-				//SerializedObject so = new SerializedObject(mrArray); // Pass this an array instead of the renderer directly, otherwise every time we call this it internally allocates a 1-long array!
-				//
-				//SerializedProperty spFirst = so.FindProperty("m_StaticBatchInfo.firstSubMesh");
-				//spFirst.intValue = submeshIdx;
-				//
+				mrArray[0] = rd[i].meshRenderer;
+				SerializedObject so = new SerializedObject(mrArray); // Pass this an array instead of the renderer directly, otherwise every time we call this it internally allocates a 1-long array!
+				
+				SerializedProperty spFirst = so.FindProperty("m_StaticBatchInfo.firstSubMesh");
+				spFirst.intValue = submeshIdx;
+				
 				int submeshCount = rd[i].mesh.subMeshCount;
-				//SerializedProperty spCount = so.FindProperty("m_StaticBatchInfo.subMeshCount");
-				//spCount.intValue = submeshCount;
-				//
-				//so.ApplyModifiedPropertiesWithoutUndo();
-				//
-				SetStaticBatchInfo(rd[i].meshRenderer, submeshIdx, submeshCount);
+				SerializedProperty spCount = so.FindProperty("m_StaticBatchInfo.subMeshCount");
+				spCount.intValue = submeshCount;
+				
+				so.ApplyModifiedPropertiesWithoutUndo();
+				
+				//SetStaticBatchInfo(rd[i].meshRenderer, submeshIdx, submeshCount);
+				
 				GameObject go = rd[i].rendererTransform.gameObject;
 				StaticEditorFlags flags = GameObjectUtility.GetStaticEditorFlags(go);
 				GameObjectUtility.SetStaticEditorFlags(go, flags & ~StaticEditorFlags.BatchingStatic);
