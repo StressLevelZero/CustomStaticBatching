@@ -77,6 +77,14 @@ namespace SLZ.CustomStaticBatching.Editor
 				if (m_globalSettings == null)
 				{
 					m_globalSettings = ScriptableObject.CreateInstance<SBSettingsSO>();
+					string settingsDir = Path.Combine(
+							Path.GetDirectoryName(Application.dataPath),
+							"Settings"
+							);
+					if (!Directory.Exists(settingsDir))
+					{
+						AssetDatabase.CreateFolder("Assets", "Settings");
+					}
 					AssetDatabase.CreateAsset(m_globalSettings, settingsPath);
 				}
 				return m_globalSettings;
