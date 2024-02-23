@@ -2,6 +2,7 @@ using System.Collections.Generic;
 using UnityEngine;
 using UnityEditor.Build;
 using UnityEditor;
+using System.IO;
 
 namespace SLZ.CustomStaticBatching.Editor
 {
@@ -83,7 +84,7 @@ namespace SLZ.CustomStaticBatching.Editor
 				{
 					m_globalSettings = ScriptableObject.CreateInstance<SBSettingsSO>();
 					string settingsDir = Path.Combine(
-							Path.GetDirectoryName(Application.dataPath),
+							Application.dataPath,
 							"Settings"
 							);
 					if (!Directory.Exists(settingsDir))
