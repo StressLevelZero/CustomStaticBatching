@@ -178,7 +178,7 @@ namespace SLZ.CustomStaticBatching
 		/// <param name="renderers">Array of renderer structs from which to generate the list of unique meshes</param>
 		/// <param name="meshList">output list of unique meshes</param>
 		/// <param name="renderer2Mesh">Array that maps each index of the renderer array to an index in the unique mesh list</param>
-		public void SerialGetUniqueMeshes(RendererData[] renderers, out List<Mesh> meshList, out int[] renderer2Mesh)
+		public static void SerialGetUniqueMeshes(RendererData[] renderers, out List<Mesh> meshList, out int[] renderer2Mesh)
 		{
 			meshList = new List<Mesh>(renderers.Length);
 			//Debug.Log("Num Renderers: " + renderers.Length);
@@ -206,7 +206,7 @@ namespace SLZ.CustomStaticBatching
 		/// <param name="meshList">output list of unique meshes</param>
 		/// <param name="meshDataArray">output array of readonly meshdata structs for use by the jobs system</param>
 		/// <param name="renderer2Mesh">Array that maps each index of the renderer array to an index in the unique mesh list</param>
-		public void ParallelGetUniqueMeshes(RendererData[] renderers, out List<Mesh> meshList, out Mesh.MeshDataArray meshDataArray, out int[] renderer2Mesh)
+		public static void ParallelGetUniqueMeshes(RendererData[] renderers, out List<Mesh> meshList, out Mesh.MeshDataArray meshDataArray, out int[] renderer2Mesh)
 		{
 			SerialGetUniqueMeshes(renderers, out meshList, out renderer2Mesh);
 #if UNITY_EDITOR
@@ -228,7 +228,7 @@ namespace SLZ.CustomStaticBatching
 		/// <param name="meshList">List of meshes to get the channel information of</param>
 		/// <param name="meshChannels">output array of packed channel information. The index of each element divided by 12 is the index of the mesh it corresponds to</param>
 		/// <param name="invalidMeshes">outupt array of flags that correspond to each mesh in the mesh list. If the value is 1, the mesh has incompatible channel formats and can't be combined</param>
-		internal void SerialGetMeshLayout(List<Mesh> meshList, out NativeArray<PackedChannel> meshChannels, out NativeArray<byte> invalidMeshes)
+		public static void SerialGetMeshLayout(List<Mesh> meshList, out NativeArray<PackedChannel> meshChannels, out NativeArray<byte> invalidMeshes)
 		{
 			int numMeshes = meshList.Count;
 			meshChannels = new NativeArray<PackedChannel>(NUM_VTX_CHANNELS * numMeshes, Allocator.Temp);
@@ -275,7 +275,7 @@ namespace SLZ.CustomStaticBatching
 		/// <param name="meshDataArray">Array of mesh data to get the channel information of</param>
 		/// <param name="meshChannels">output array of packed channel information. The index of each element divided by 12 is the index of the mesh it corresponds to</param>
 		/// <param name="invalidMeshes">outupt array of flags that correspond to each mesh in the mesh list. If the value is 1, the mesh has incompatible channel formats and can't be combined</param>
-		internal void ParallelGetMeshLayout(Mesh.MeshDataArray meshDataArray, out NativeArray<PackedChannel> meshChannels, out NativeArray<byte> invalidMeshes)
+		public static void ParallelGetMeshLayout(Mesh.MeshDataArray meshDataArray, out NativeArray<PackedChannel> meshChannels, out NativeArray<byte> invalidMeshes)
 		{
 			meshChannels = new NativeArray<PackedChannel>(NUM_VTX_CHANNELS * meshDataArray.Length, Allocator.Persistent);
 			invalidMeshes = new NativeArray<byte>(meshDataArray.Length, Allocator.TempJob);
@@ -952,7 +952,9 @@ namespace SLZ.CustomStaticBatching
 			int numBytes = combinedMesh.GetVertexBufferStride(0) * combinedMesh.vertexCount;
 			NativeArray<byte> bufferBytes = new NativeArray<byte>(numBytes, Allocator.Persistent);
 			AsyncGPUReadbackRequest request = AsyncGPUReadback.RequestIntoNativeArray<byte>(ref bufferBytes, combinedMeshBuffer);
+#if UNITY_2022_1_OR_NEWER
 			request.forcePlayerLoopUpdate = true;
+#endif
 
 			AsyncMeshReadbackData readbackInfo = new AsyncMeshReadbackData() { request = request, gpuBuffer = combinedMeshBuffer, cpuBuffer = bufferBytes };
 

@@ -79,7 +79,7 @@ namespace SLZ.CustomStaticBatching.Editor
 
 			// Get a list of the meshes used in the scene, and a mapping from the list of renderers to the list of meshes
 			profilerGetUniqueMeshes.Begin();
-			cml.ParallelGetUniqueMeshes(sortedRenderers, out uniqueMeshList, out uniqueMeshData, out renderer2Mesh);
+			ParallelGetUniqueMeshes(sortedRenderers, out uniqueMeshList, out uniqueMeshData, out renderer2Mesh);
 			profilerGetUniqueMeshes.End();
 
 
@@ -87,7 +87,7 @@ namespace SLZ.CustomStaticBatching.Editor
 			NativeArray<PackedChannel> uniqueMeshLayout;
 			NativeArray<byte> invalidMeshes;
 			profilerGetMeshLayout.Begin();
-			cml.ParallelGetMeshLayout(uniqueMeshData, out uniqueMeshLayout, out invalidMeshes);
+			ParallelGetMeshLayout(uniqueMeshData, out uniqueMeshLayout, out invalidMeshes);
 			profilerGetMeshLayout.End();
 
 			// Shift all the renderers with valid meshes to the front of the array
