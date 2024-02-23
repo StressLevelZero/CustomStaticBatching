@@ -42,4 +42,4 @@ It works by using using the IProcessScene callback to modify the temporary copy 
 
 - ~~Add support for split vertex buffers~~ Done, added support for 2 separate buffers for mobile, with options to set what attributes go into the second buffer in the settings
 
-- Add an option to automatically split static renderers with multiple materials into multiple single material meshes and renderers
+- ~~Add an option to automatically split static renderers with multiple materials into multiple single material meshes and renderers~~ Likely impossible without great effort, would probably have to modify the LightingData asset to add new lightmap scale-offsets for the new renderers.

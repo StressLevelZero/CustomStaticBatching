@@ -13,6 +13,7 @@ using System.Runtime.CompilerServices;
 
 namespace SLZ.CustomStaticBatching
 {
+<<<<<<< HEAD
 	public class MeshUtilities
 	{
 		static ProfilerMarker profilerGetSubMesh = new ProfilerMarker("MeshUtilities.GetSplitMesh");

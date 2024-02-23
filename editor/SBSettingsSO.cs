@@ -52,6 +52,11 @@ namespace SLZ.CustomStaticBatching.Editor
 		public CombineRendererSettings GetActiveBuildTargetSettings()
 		{
 			BuildTarget target = EditorUserBuildSettings.activeBuildTarget;
+			return GetBuildTargetSettings(target);
+		}
+
+		public CombineRendererSettings GetBuildTargetSettings(BuildTarget target)
+		{
 			string targetName = NamedBuildTarget.FromBuildTargetGroup(BuildPipeline.GetBuildTargetGroup(target)).TargetName;
 			EditorCombineRendererSettings settings = defaultSettings;
 			for (int i = 0; i < platformOverrideSettings.Count; i++)

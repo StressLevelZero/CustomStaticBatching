@@ -10,7 +10,7 @@ using UnityEngine;
 using static SLZ.CustomStaticBatching.SBCombineMeshList;
 using static SLZ.CustomStaticBatching.PackedChannel;
 using static UnityEngine.Mesh;
-
+using System.Reflection;
 
 namespace SLZ.CustomStaticBatching.Editor
 {
@@ -21,6 +21,12 @@ namespace SLZ.CustomStaticBatching.Editor
 		public static void FetchGlobalProjectSettings(this SBCombineMeshList cml)
 		{
 			CombineRendererSettings settings = SBSettingsSO.GlobalSettings.GetActiveBuildTargetSettings();
+			cml.settings = settings;
+		}
+
+		public static void FetchTargetProjectSettings(this SBCombineMeshList cml, BuildTarget target)
+		{
+			CombineRendererSettings settings = SBSettingsSO.GlobalSettings.GetBuildTargetSettings(target);
 			cml.settings = settings;
 		}
 
@@ -160,6 +166,20 @@ namespace SLZ.CustomStaticBatching.Editor
 			}
 		}
 
+		delegate void dSetStaticBatchInfo(Renderer renderer, int firstSubMesh, int subMeshCount);
+		static dSetStaticBatchInfo s_SetStaticBatchInfo;
+		static dSetStaticBatchInfo SetStaticBatchInfo
+		{
+			get
+			{
+				if (s_SetStaticBatchInfo == null) 
+				{ 
+					MethodInfo minfo = typeof(Renderer).GetMethod("SetStaticBatchInfo", BindingFlags.Instance | BindingFlags.NonPublic);
+					s_SetStaticBatchInfo = (dSetStaticBatchInfo)minfo.CreateDelegate(typeof(dSetStaticBatchInfo));
+				}
+				return s_SetStaticBatchInfo;
+			}
+		}
 
 		public static void AssignSBCombinedMesh(Mesh combinedMesh, RendererData[] rd, int[] renderer2Mesh, int2 rendererRange)
 		{
@@ -168,25 +188,78 @@ namespace SLZ.CustomStaticBatching.Editor
 			MeshRenderer[] mrArray = new MeshRenderer[1];
 			for (int i = rendererRange.x; i < rendererRange.y; i++)
 			{
-					rd[i].meshFilter.sharedMesh = combinedMesh;
-					mrArray[0] = rd[i].meshRenderer;
-					SerializedObject so = new SerializedObject(mrArray); // Pass this an array instead of the renderer directly, otherwise every time we call this it internally allocates a 1-long array!
-
-					SerializedProperty spFirst = so.FindProperty("m_StaticBatchInfo.firstSubMesh");
-					spFirst.intValue = submeshIdx;
-
-					int submeshCount = rd[i].mesh.subMeshCount;
-					SerializedProperty spCount = so.FindProperty("m_StaticBatchInfo.subMeshCount");
-					spCount.intValue = submeshCount;
-
-					so.ApplyModifiedPropertiesWithoutUndo();
-
-					GameObject go = rd[i].rendererTransform.gameObject;
-					StaticEditorFlags flags = GameObjectUtility.GetStaticEditorFlags(go);
-					GameObjectUtility.SetStaticEditorFlags(go, flags & ~StaticEditorFlags.BatchingStatic);
-					EditorUtility.SetDirty(go);
-					submeshIdx += submeshCount;
+				rd[i].meshFilter.sharedMesh = combinedMesh;
+				mrArray[0] = rd[i].meshRenderer;
+				SerializedObject so = new SerializedObject(mrArray); // Pass this an array instead of the renderer directly, otherwise every time we call this it internally allocates a 1-long array!
+				
+				SerializedProperty spFirst = so.FindProperty("m_StaticBatchInfo.firstSubMesh");
+				spFirst.intValue = submeshIdx;
+				
+				int submeshCount = rd[i].mesh.subMeshCount;
+				SerializedProperty spCount = so.FindProperty("m_StaticBatchInfo.subMeshCount");
+				spCount.intValue = submeshCount;
+				
+				so.ApplyModifiedPropertiesWithoutUndo();
+				
+				//SetStaticBatchInfo(rd[i].meshRenderer, submeshIdx, submeshCount);
+				
+				GameObject go = rd[i].rendererTransform.gameObject;
+				StaticEditorFlags flags = GameObjectUtility.GetStaticEditorFlags(go);
+				GameObjectUtility.SetStaticEditorFlags(go, flags & ~StaticEditorFlags.BatchingStatic);
+				EditorUtility.SetDirty(go);
+				submeshIdx += submeshCount;
 			}
+		}
+
+
+		public static RendererData[] GetSortedRendererData(List<MeshRenderer> renderers, SBCombineMeshList combiner)
+		{
+			int numRenderers = renderers.Count;
+			int rendererIdx = 0;
+			bool allow32bitIdxBatches = combiner.settings.allow32bitIdx;
+			List<MeshFilter> meshFilters = new List<MeshFilter>(numRenderers);
+			for (int i = 0; i < numRenderers; i++)
+			{
+				MeshRenderer mr = renderers[i];
+				GameObject go = mr.gameObject;
+				if (!GameObjectUtility.AreStaticEditorFlagsSet(go, StaticEditorFlags.BatchingStatic))
+				{
+					continue;
+				}
+
+				MeshFilter mf = go.GetComponent<MeshFilter>();
+
+				if (mf == null || mf.sharedMesh == null)
+				{
+					continue;
+				}
+
+
+				if (!allow32bitIdxBatches && mf.sharedMesh.indexFormat == UnityEngine.Rendering.IndexFormat.UInt32)
+				{
+					continue;
+				}
+
+				if (mr.sharedMaterials.Length == 0 || mr.sharedMaterials[0] == null)
+				{
+					continue;
+				}
+
+				renderers[rendererIdx] = mr;
+				meshFilters.Add(mf);
+				rendererIdx++;
+			}
+			if (numRenderers != rendererIdx) renderers.RemoveRange(rendererIdx, numRenderers - rendererIdx);
+			renderers.TrimExcess();
+			meshFilters.TrimExcess();
+
+			//if (renderers.Count < 2)
+			//{
+			//	return new RendererData[0];
+			//}
+
+			RendererData[] sortedData = RendererSort.GetSortedData(renderers, meshFilters);
+			return sortedData;
 		}
 	}
 }
