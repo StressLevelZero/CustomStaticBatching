@@ -6,36 +6,36 @@ namespace SLZ.CustomStaticBatching
 {
 	public interface IGenericInt<T>
 	{
-		[BurstCompatible]
+		//[BurstCompatible]
 		[MethodImpl(MethodImplOptions.AggressiveInlining)]
 		public int ToInt(T value);
 
-		[BurstCompatible]
+		//[BurstCompatible]
 		[MethodImpl(MethodImplOptions.AggressiveInlining)]
 		public T ToType(int other);
 
-		[BurstCompatible]
+		//[BurstCompatible]
 		[MethodImpl(MethodImplOptions.AggressiveInlining)]
 		public T Add(T value, int other);
 	}
 
 	public struct GenericInt32 : IGenericInt<int>
 	{
-		[BurstCompatible]
+		//[BurstCompatible]
 		[MethodImpl(MethodImplOptions.AggressiveInlining)]
 		public int ToInt(int value)
 		{
 			return value;
 		}
 
-		[BurstCompatible]
+		//[BurstCompatible]
 		[MethodImpl(MethodImplOptions.AggressiveInlining)]
 		public int ToType(int value)
 		{
 			return value;
 		}
 
-		[BurstCompatible]
+		//[BurstCompatible]
 		[MethodImpl(MethodImplOptions.AggressiveInlining)]
 		public int Add(int value, int other)
 		{
@@ -45,21 +45,21 @@ namespace SLZ.CustomStaticBatching
 
 	public struct GenericInt16 : IGenericInt<ushort>
 	{
-		[BurstCompatible]
+		//[BurstCompatible]
 		[MethodImpl(MethodImplOptions.AggressiveInlining)]
 		public int ToInt(ushort value)
 		{
 			return (int)value;
 		}
 
-		[BurstCompatible]
+		//[BurstCompatible]
 		[MethodImpl(MethodImplOptions.AggressiveInlining)]
 		public ushort ToType(int value)
 		{
 			return (ushort)value;
 		}
 
-		[BurstCompatible]
+		//[BurstCompatible]
 		[MethodImpl(MethodImplOptions.AggressiveInlining)]
 		public ushort Add(ushort value, int other)
 		{
