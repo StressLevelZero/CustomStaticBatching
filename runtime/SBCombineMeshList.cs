@@ -23,6 +23,8 @@ namespace SLZ.CustomStaticBatching
         public MeshFilter meshFilter;
         public MeshRenderer meshRenderer;
         public Transform rendererTransform;
+		public Shader shader;
+		public bool monomaterial;
     }
 
 
@@ -62,19 +64,23 @@ namespace SLZ.CustomStaticBatching
             //cMeshIdxRange = new List<int2>();
             cMeshIdxRange = new List<int2>();
             if (renderersLength == 0) return;
-
-            for (int rIdx = 0; rIdx < renderersLength; rIdx++)
+			bool monoMaterial = sortedRenderers[0].monomaterial;
+			Shader currShader = sortedRenderers[0].shader;
+			
+			for (int rIdx = 0; rIdx < renderersLength; rIdx++)
             {
             
                 int meshVertexCount = sortedRenderers[rIdx].mesh.vertexCount;
                 vertexCount += meshVertexCount;
-                if (vertexCount >= 0xffff)
+                if (vertexCount >= 0xffff || monoMaterial != sortedRenderers[rIdx].monomaterial || (monoMaterial && (currShader != sortedRenderers[rIdx].shader)))
                 {
                     cMeshIdxRange.Add(new int2(meshGroupBeginIdx, rIdx));
                     currentMeshIdx++;
                     meshGroupBeginIdx = rIdx;
                     vertexCount = meshVertexCount;
-                }
+					monoMaterial = sortedRenderers[rIdx].monomaterial;
+					currShader = sortedRenderers[rIdx].shader;
+				}
                 renderer2CMeshIdx[rIdx] = currentMeshIdx;
             
             }
@@ -109,7 +115,11 @@ namespace SLZ.CustomStaticBatching
             int meshGroupBeginIdx = 0;
             //cMeshIdxRange = new List<int2>();
             cMeshIdxRange = new List<int2>();
-            if (renderersLength == 0)
+
+			bool monoMaterial = sortedRenderers[0].monomaterial;
+			Shader currShader = sortedRenderers[0].shader;
+
+			if (renderersLength == 0)
             {
                 largeIdxBinStart = 0; 
                 return;
@@ -124,13 +134,15 @@ namespace SLZ.CustomStaticBatching
                 }
                 int meshVertexCount = m.vertexCount;
                 vertexCount += meshVertexCount;
-                if (vertexCount >= 0xffff)
+                if (vertexCount >= 0xffff || monoMaterial != sortedRenderers[rIdx].monomaterial || (monoMaterial && (currShader != sortedRenderers[rIdx].shader)))
                 {
                     cMeshIdxRange.Add(new int2(meshGroupBeginIdx, rIdx));
                     currentMeshIdx++;
                     meshGroupBeginIdx = rIdx;
                     vertexCount = meshVertexCount;
-                }
+					monoMaterial = sortedRenderers[rIdx].monomaterial;
+					currShader = sortedRenderers[rIdx].shader;
+				}
                 renderer2CMeshIdx[rIdx] = currentMeshIdx;
 
             }
@@ -154,13 +166,15 @@ namespace SLZ.CustomStaticBatching
 
                     int meshVertexCount = m.vertexCount;
                     vertexCount += meshVertexCount;
-                    if (vertexCount > max32Vtx)
+                    if (vertexCount > max32Vtx || monoMaterial != sortedRenderers[rIdx].monomaterial || (monoMaterial && (currShader != sortedRenderers[rIdx].shader)))
                     {
                         cMeshIdxRange.Add(new int2(meshGroupBeginIdx, rIdx));
                         currentMeshIdx++;
                         meshGroupBeginIdx = rIdx;
                         vertexCount = meshVertexCount;
-                    }
+						monoMaterial = sortedRenderers[rIdx].monomaterial;
+						currShader = sortedRenderers[rIdx].shader;
+					}
                     renderer2CMeshIdx[rIdx] = currentMeshIdx;
                 }
 

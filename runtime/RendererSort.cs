@@ -42,7 +42,7 @@ namespace SLZ.CustomStaticBatching
 		//public ulong probeId; // Pack two int IDs for the two most important probes // Not used for now, seems to cause issues
 		public ulong hilbertIdx;
 
-		[BurstCompatible]
+		//[BurstCompatible]
 		public int CompareTo(RendererSortItem other)
 		{
 			if (breakingState != other.breakingState)
@@ -290,7 +290,9 @@ namespace SLZ.CustomStaticBatching
 					mesh = filter.sharedMesh,
 					meshFilter = filter,
 					meshRenderer = meshRenderers[rendererIdx],
-					rendererTransform = filter.transform
+					rendererTransform = filter.transform,
+					shader = meshRenderers[rendererIdx].sharedMaterial?.shader,
+					monomaterial = (rendererSortItems[i].breakingState & 0x4000u) == 0u
 				};
 			}
 			rendererSortItems.Dispose();
