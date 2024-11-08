@@ -41,6 +41,7 @@ namespace SLZ.CustomStaticBatching
 		public ushort lightmapIdx;
 		//public ulong probeId; // Pack two int IDs for the two most important probes // Not used for now, seems to cause issues
 		public ulong hilbertIdx;
+		public int LODLevel;
 
 		//[BurstCompatible]
 		public int CompareTo(RendererSortItem other)
@@ -78,10 +79,20 @@ namespace SLZ.CustomStaticBatching
 			{
 				return hilbertIdx > other.hilbertIdx ? 1 : -1;
 			}
+			if (LODLevel != other.LODLevel)
+			{
+				return LODLevel < other.LODLevel ? 1 : -1;
+			}
 			return 0;
 		}
 	}
 
+	public struct LODInfo
+	{
+		public LODGroup lodRoot;
+		public Vector3 lodCenter;
+		public uint lodLevel;
+	}
 
 	/// <summary>
 	/// Utility class to get the internal index for local shader keywords. In editor it uses IL generation to create a method to access the internal field. 
@@ -220,11 +231,14 @@ namespace SLZ.CustomStaticBatching
 		/// <param name="meshRenderers"> List of mesh renderers</param>
 		/// <param name="filters"> List of mesh filters that correspond to each element of meshRenderers</param>
 		/// <returns></returns>
-		public static RendererData[] GetSortedData(List<MeshRenderer> meshRenderers, List<MeshFilter> filters)
+		public static RendererData[] GetSortedData(List<MeshRenderer> meshRenderers, List<MeshFilter> filters, Dictionary<MeshRenderer, LODInfo> lodInfo = null)
 		{
 			profileSortRenderers.Begin();
 
 			profileGetMaterials.Begin();
+
+			bool hasLODInfo = lodInfo != null;
+
 			// Get an array of unique materials referenced by the renderers, and a mapping from a renderer to the index of its first material in the unique array
 			int[] rendererToMaterial;
 			Material[] uniqueMats;
@@ -235,9 +249,25 @@ namespace SLZ.CustomStaticBatching
 			MaterialAndShaderID[] matShaderIds = GetMaterialAndShaderIDs(uniqueMats, rendererToMaterial);
 
 			profileGetRenderersHilbertIdx.Begin();
+
+			
+			NativeArray<UInt64> hilbertIdxs;
+			bool hasLODs = lodInfo != null;
+			int[] lodLevels;
+			if (hasLODs)
+			{
+				NativeArray<Vector3> meshPoses = new NativeArray<Vector3>(meshRenderers.Count, Allocator.TempJob);
+				GetLodLevelsAndOrigins(meshRenderers, lodInfo, ref meshPoses, out lodLevels);
+				hilbertIdxs = GetHilbertIdxs(meshRenderers, ref meshPoses, lodLevels);
+			}
+			else
+			{
+				lodLevels = null;
+				hilbertIdxs = GetHilbertIdxs(meshRenderers);
+			}
 			// Get the hilbert index of the bounds center of each mesh renderer, in the cubic bounding box that encapsulates all the static meshes to be combined.
 			// TODO: Also pass batching volumes and a BVH tree to accelerate finding the appropriate batching volume for each mesh
-			NativeArray<UInt64> hilbertIdxs = GetHilbertIdxs(meshRenderers);
+			
 			profileGetRenderersHilbertIdx.End();
 
 			profileGetRenderersSortData.Begin();
@@ -257,6 +287,7 @@ namespace SLZ.CustomStaticBatching
 				//	numClosest > 1 ? closestProbes[1].probe.GetHashCode() : -0x7fffffff,
 				//	numClosest > 0 ? closestProbes[0].probe.GetHashCode() : -0x7fffffff}; // Assumes little-endian
 				//closestProbes.Clear();
+				
 				ushort breakingState = (ushort)((mr.sharedMaterials.Length > 1 ? 0x4000u : 0u) + (mr.gameObject.activeInHierarchy && mr.enabled ? 0u : 1u));
 				rendererSortItems[i] = new RendererSortItem
 				{
@@ -268,7 +299,8 @@ namespace SLZ.CustomStaticBatching
 					lightmapIdx = (ushort)mr.lightmapIndex,
 					//probeId = MemoryMarshal.Cast<int, ulong>(probeHash)[0], // Pack two int IDs for the two most important probes
 					zoneID = 0,
-					hilbertIdx = hilbertIdxs[i]
+					hilbertIdx = hilbertIdxs[i],
+					LODLevel = hasLODs ? Mathf.Max(lodLevels[i], 0) : 0 // lodLevels is -1 for renderers not in a group, max with 0
 				};
 			}
 			hilbertIdxs.Dispose();
@@ -348,15 +380,62 @@ namespace SLZ.CustomStaticBatching
 			return matShaderIDs;
 		}
 
+		static void GetLodLevelsAndOrigins(List<MeshRenderer> meshRenderers, Dictionary<MeshRenderer, LODInfo> lodInfo, ref NativeArray<Vector3> positions, out int[] lodLevels)
+		{
+			int numRenderers = meshRenderers.Count;
+			lodLevels = new int[numRenderers];
+			
+			for (int i = 0; i < numRenderers; i++)
+			{
+				if (lodInfo.TryGetValue(meshRenderers[i], out LODInfo lod))
+				{
+					lodLevels[i] = (int)lod.lodLevel;
+					positions[i] = lod.lodCenter;
+				}
+				else
+				{
+					lodLevels[i] = -1;
+				}
+			}
+		}
+
 		static NativeArray<UInt64> GetHilbertIdxs(List<MeshRenderer> meshRenderers)
 		{
 			int length = meshRenderers.Count;
 			NativeArray<Vector3> positions = new NativeArray<Vector3>(length, Allocator.TempJob);
 			Bounds hilbertBounds = meshRenderers[0].bounds;
-			for (int i = 0; i < length; i++) 
+			// Use lod origin as the renderer location rather than the bounds center if in a LOD Group. This ensures that members of
+			// the same LOD group always get sorted together by LOD level
+
+			for (int i = 0; i < length; i++)
 			{
 				Bounds bounds = meshRenderers[i].bounds;
 				positions[i] = bounds.center;
+				hilbertBounds.Encapsulate(bounds);
+			}
+			float maxDim = math.max(math.max(hilbertBounds.extents.x, hilbertBounds.extents.y), hilbertBounds.extents.z);
+			Vector3 minExtent = hilbertBounds.center - hilbertBounds.extents;
+			hilbertBounds.extents = new Vector3(maxDim, maxDim, maxDim);
+			hilbertBounds.center = minExtent + hilbertBounds.extents;
+			NativeArray<UInt64> hilbertIdxs = HilbertIndex.GetHilbertIndices(positions, hilbertBounds, Allocator.TempJob);
+			positions.Dispose();
+			return hilbertIdxs;
+		}
+
+		static NativeArray<UInt64> GetHilbertIdxs(List<MeshRenderer> meshRenderers, ref NativeArray<Vector3> positions, int[] lodLevels)
+		{
+			int length = meshRenderers.Count;
+			Bounds hilbertBounds = meshRenderers[0].bounds;
+			// Use lod origin as the renderer location rather than the bounds center if in a LOD Group. This ensures that members of
+			// the same LOD group always get sorted together by LOD level
+
+			for (int i = 0; i < length; i++)
+			{
+				Bounds bounds = meshRenderers[i].bounds;
+				if (lodLevels[i] == -1) // -1 means no lod group. It is assumed that GetLodLevelsAndOrigins was called before and filled the positions for lod renderers
+				{
+					positions[i] = bounds.center;
+				}
 				hilbertBounds.Encapsulate(bounds);
 			}
 			float maxDim = math.max(math.max(hilbertBounds.extents.x, hilbertBounds.extents.y), hilbertBounds.extents.z);

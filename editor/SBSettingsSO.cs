@@ -9,6 +9,7 @@ namespace SLZ.CustomStaticBatching.Editor
 	public class SBSettingsSO : ScriptableObject
 	{
 		public const string settingsPath = "Assets/Settings/SLZStaticBatchingSettings.asset";
+		public bool executeInPlayMode = true;
 		private static SBSettingsSO m_globalSettings;
 
 		const int currentSettingsVersion = 1;

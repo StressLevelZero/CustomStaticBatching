@@ -52,7 +52,10 @@ namespace SLZ.CustomStaticBatching.Editor
 			title.style.fontSize = 20;
 			title.style.paddingBottom = 8;
 
-
+			Toggle enableInPlayMode = new Toggle("Enable In Play Mode");
+			enableInPlayMode.tooltip = "Run modified static batching in play mode in editor. As the editor runs static batching on scene load, this will cause hitching when asynchronously streaming scenes. Disabling this allows unity's default static batching to run instead";
+			enableInPlayMode.bindingPath = "executeInPlayMode";
+			enableInPlayMode.Bind(globalSettings);
 
 
 			VisualElement testButtonStrip = new VisualElement();
@@ -96,6 +99,7 @@ namespace SLZ.CustomStaticBatching.Editor
 
 			rootElement.Add(margin);
 			margin.Add(title);
+			margin.Add(enableInPlayMode);
 			margin.Add(tabBox);
 			//EditorToolbarUtility.SetupChildrenAsButtonStrip(testButtonStrip);
 		}

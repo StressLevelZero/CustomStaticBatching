@@ -15,17 +15,56 @@ namespace SLZ.CustomStaticBatching
 
 		public void OnProcessScene(UnityEngine.SceneManagement.Scene scene, BuildReport report)
 		{
-
+			if (!SBSettingsSO.GlobalSettings.executeInPlayMode && !BuildPipeline.isBuildingPlayer)
+			{
+				Debug.Log("Skipping custom static batching, play mode execution disabled in settings");
+				return;
+			}
 			Debug.Log("Running static batching for " + scene.name);
 			GameObject[] selection = scene.GetRootGameObjects();
 			List<MeshRenderer> renderers = new List<MeshRenderer>();
-			
-			
+
+			List<LODGroup> sceneLodGroups = new List<LODGroup>();
 			for (int i = 0; i < selection.Length; i++)
 			{
 				MeshRenderer[] mf2 = selection[i].GetComponentsInChildren<MeshRenderer>();
 				renderers.AddRange(mf2);
+				LODGroup[] l2 = selection[i].GetComponentsInChildren<LODGroup>();
+				sceneLodGroups.AddRange(l2);
 			}
+
+			// Get a map from every static mesh renderer in a LOD group to an info struct containing the parent LOD group and LOD level
+			Dictionary<MeshRenderer, LODInfo> lodMap = new Dictionary<MeshRenderer, LODInfo>();
+			int numLodGroups = sceneLodGroups.Count;
+			for (int gIdx = 0; gIdx < numLodGroups; gIdx++)
+			{
+				LOD[] lods = sceneLodGroups[gIdx].GetLODs();
+				int numLods = lods.Length;
+				for (int lIdx = 0; lIdx < numLods; lIdx++)
+				{
+					Renderer[] lodRenderers = lods[lIdx].renderers;
+					int numlodRenderers = lodRenderers.Length;
+					for (int rIdx = 0; rIdx < numlodRenderers; rIdx++)
+					{
+						if (lodRenderers[rIdx] == null) continue;
+
+						MeshRenderer mrLod = (MeshRenderer)lodRenderers[rIdx];
+						bool isStatic = GameObjectUtility.AreStaticEditorFlagsSet(lodRenderers[rIdx].gameObject, StaticEditorFlags.BatchingStatic);
+						if (isStatic && mrLod != null)
+						{
+							// if mrLod was already in the dictionary, that means it also belongs to a lower lod level. Hopefully no one is insane enough to reference the same renderer in different groups!
+							lodMap.TryAdd(mrLod,
+								new LODInfo { 
+									lodRoot = sceneLodGroups[gIdx], 
+									lodCenter = sceneLodGroups[gIdx].transform.TransformPoint(sceneLodGroups[gIdx].localReferencePoint),
+									lodLevel = (uint)lIdx 
+								}
+								);
+						}
+					}
+				}
+			}
+
 			int numRenderers = renderers.Count;
 			int rendererIdx = 0;
 
@@ -80,7 +119,9 @@ namespace SLZ.CustomStaticBatching
 				return;
 			}
 
-			RendererData[] sortedData = RendererSort.GetSortedData(renderers, meshFilters);
+			
+
+			RendererData[] sortedData = RendererSort.GetSortedData(renderers, meshFilters, lodMap);
 
 
 			combiner.GenerateStaticBatches(sortedData);
