@@ -183,6 +183,12 @@ namespace SLZ.CustomStaticBatching.Editor
 				SetToggleStyle(highPIdx);
 				highPIdx.BindProperty(settings);
 
+				Toggle normalize = new Toggle("Normalize normal and tangent");
+				normalize.bindingPath = rootBindingPath + "settings.normalizeNormalTangent";
+				normalize.tooltip = "Normalize normals and tangents after applying the object to world transform. This is default unity static batching behavior, but it will cause shaders to recieve different normal information vs unbatched. SNORM formats are always normalized.";
+				SetToggleStyle(normalize);
+				normalize.BindProperty(settings);
+
 				IntegerField highPIdxCount = new IntegerField("Max vertices per 32-bit index combined mesh");
 				highPIdxCount.isDelayed = true;
 				highPIdxCount.tooltip = "The maximum number of vertices that can be in a 32-bit index buffer combined mesh. Since a 32-bit index buffer can represent trillions of vertices, its a good idea to arbitrarily put a cap on how large the combined mesh can be";
@@ -271,8 +277,8 @@ namespace SLZ.CustomStaticBatching.Editor
 				SetToggleStyle(splitMultiMeshes);
 				splitMultiMeshes.BindProperty(settings);
 
-				
 
+				root.Add(normalize);
 				root.Add(highPIdx);
 				root.Add(highPIdxCount);
 				root.Add(vertexSettings);

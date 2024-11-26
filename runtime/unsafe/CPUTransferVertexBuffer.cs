@@ -65,6 +65,8 @@ namespace SLZ.CustomStaticBatching
 		public NativeArray<PackedChannel> outPackedChannelInfo;
 		[ReadOnly]
 		public FixedList32Bytes<uint> formatToBytes;
+		[ReadOnly]
+		public bool normalizeNormTan;
 
 		public void Execute(int i)
 		{
@@ -405,7 +407,7 @@ namespace SLZ.CustomStaticBatching
 				normal = mul(normal, (float3x3)WorldToObject);
 
 				uint outFmt = GetFormat(outPackedInfo);
-				if (outFmt == FORMAT_SNORM)
+				if (outFmt == FORMAT_SNORM || normalizeNormTan)
 				{
 					normal = normalize(normal);
 				}
@@ -437,7 +439,7 @@ namespace SLZ.CustomStaticBatching
 
 				uint outFmt = GetFormat(outPackedInfo);
 				outFmt = clamp(outFmt, FORMAT_SNORM, FORMAT_FLOAT);
-				if (outFmt == FORMAT_SNORM)
+				if (outFmt == FORMAT_SNORM || normalizeNormTan)
 				{
 					tangent.xyz = normalize(tangent.xyz);
 				}

@@ -1064,6 +1064,7 @@ namespace SLZ.CustomStaticBatching
                     strideOut = strideOut,
                     outPackedChannelInfo = combinedPackedChannels,
                     formatToBytes = formatToBytes,
+					normalizeNormTan = crs.normalizeNormalTangent,
                 };
                 int vertexCount = meshList[meshIdx].vertexCount;
                 

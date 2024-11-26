@@ -19,6 +19,8 @@ namespace SLZ.CustomStaticBatching
 			return outp;
 		}
 
+		public bool normalizeNormalTangent;
+
 		public byte[] serializedVtxFormats;
 
 		public bool allow32bitIdx;
@@ -28,6 +30,7 @@ namespace SLZ.CustomStaticBatching
 
 		public CombineRendererSettings(bool initialize)
 		{
+			normalizeNormalTangent = false;
 			serializedVtxFormats = new byte[PackedChannel.NUM_VTX_CHANNELS];
 			if (initialize)
 			{

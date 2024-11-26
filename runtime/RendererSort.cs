@@ -75,13 +75,14 @@ namespace SLZ.CustomStaticBatching
 			//	return probeId > other.probeId ? 1 : -1;
 			//}
 
-			if (hilbertIdx != other.hilbertIdx)
-			{
-				return hilbertIdx > other.hilbertIdx ? 1 : -1;
-			}
 			if (LODLevel != other.LODLevel)
 			{
 				return LODLevel < other.LODLevel ? 1 : -1;
+			}
+
+			if (hilbertIdx != other.hilbertIdx)
+			{
+				return hilbertIdx > other.hilbertIdx ? 1 : -1;
 			}
 			return 0;
 		}
@@ -281,6 +282,8 @@ namespace SLZ.CustomStaticBatching
 				int materialIdx = rendererToMaterial[i];
 
 				// I was going to sort on probe ID's, but it seems to break batching worse than not? Sorting spatially should ensure the probe indices is also mostly sorted anyways.
+				// NOTE: coming back a year later, I can see what's wrong. 1) Sorting by probe hash is obviously not spatially correct. I would need to gather and hilbert sort the
+				// probes as well. 2) the SRP's don't sort the probe list by weight, so probes 0 and 1 aren't necessarily the dominant probes.
 				//mr.GetClosestReflectionProbes(closestProbes);
 				//int numClosest = closestProbes.Count;
 				//ReadOnlySpan<int> probeHash = stackalloc int[2] { 
