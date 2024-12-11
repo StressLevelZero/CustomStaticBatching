@@ -83,18 +83,17 @@ namespace SLZ.CustomStaticBatching
 				}
 				MeshFilter mf = go.GetComponent<MeshFilter>();
 
+				if (mf == null || mf.sharedMesh == null)
+				{
+					continue;
+				}
+
 				if (mr.sharedMaterials.Length > mf.sharedMesh.subMeshCount)
 				{
 					Debug.LogError($"SLZ Static Batching: renderer with more materials than submeshes! ({AnimationUtility.CalculateTransformPath(go.transform, null)})\n" +
 						"Skipping static batching for this renderer as the extra material slots will draw using the submeshes from the next object in the combined mesh buffer rather than redrawing the original submesh");
 					continue;
 				}
-
-				if (mf == null || mf.sharedMesh == null)
-				{
-					continue;
-				}
-
 
 				if (!allow32bitIdxBatches && mf.sharedMesh.indexFormat == UnityEngine.Rendering.IndexFormat.UInt32)
 				{
@@ -118,8 +117,6 @@ namespace SLZ.CustomStaticBatching
 			{
 				return;
 			}
-
-			
 
 			RendererData[] sortedData = RendererSort.GetSortedData(renderers, meshFilters, lodMap);
 
