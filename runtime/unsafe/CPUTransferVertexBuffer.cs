@@ -19,8 +19,7 @@ namespace SLZ.CustomStaticBatching
 		static IntPtr DummyCompileGeneric(NativeArray<byte> dummy)
 		{
 			IntPtr a = (IntPtr)NativeArrayUnsafeUtility.GetUnsafeBufferPointerWithoutChecks<byte>(dummy);
-			throw new InvalidOperationException("DummyCompileGeneric is not a real method, exists solely to force compilation of a generic method");
-			return a;
+			throw new InvalidOperationException("DummyCompileGeneric is not a real method, exists solely to force compilation of a generic method " + a);
 		}
 	}
 
@@ -67,6 +66,10 @@ namespace SLZ.CustomStaticBatching
 		public FixedList32Bytes<uint> formatToBytes;
 		[ReadOnly]
 		public bool normalizeNormTan;
+		[ReadOnly]
+		public bool vtxRounding;
+		[ReadOnly]
+		public double vtxRoundingAmount;
 
 		public void Execute(int i)
 		{
@@ -302,16 +305,12 @@ namespace SLZ.CustomStaticBatching
 			{
 				case FORMAT_UNORM: // unorm
 					return ConvertUNorm4ToFloat4(value.x);
-					break;
 				case FORMAT_SNORM: // snorm
 					return ConvertSNorm4ToFloat4(value.x);
-					break;
 				case FORMAT_HALF: // half
 					return ConvertHalf4toFloat4(value.xy);
-					break;
 				case FORMAT_FLOAT: // float
 					return asfloat(value);
-					break;
 				default:
 					return float4(0, 0, 0, 0);
 			}
@@ -325,16 +324,12 @@ namespace SLZ.CustomStaticBatching
 			{
 				case FORMAT_FLOAT: // float
 					return asuint(value);
-					break;
 				case FORMAT_HALF: // half
 					return uint4(ConvertFloat4ToHalf4(value), 0, 0);
-					break;
 				case FORMAT_SNORM: // snorm
 					return uint4(ConvertFloat4ToSNorm4(value), 0, 0, 0);
-					break;
 				case FORMAT_UNORM: // unorm
 					return uint4(ConvertFloat4ToUNorm4(value), 0, 0, 0);
-					break;
 				default:
 					return uint4(0, 0, 0, 0);
 			}
@@ -377,7 +372,17 @@ namespace SLZ.CustomStaticBatching
 			}
 		}
 
+		[MethodImpl(MethodImplOptions.AggressiveInlining)]
+		float4 RoundPositions(float4 pos, double rounding)
+		{
+			double4 posD = double4(pos);
+			posD *= (1.0 / rounding);
+			posD  = round(posD);
+			posD *= rounding;
+			return float4(posD);
+		}
 
+		[BurstCompile]
 		void WritePositionChannel(uint inPackedInfo, uint outPackedInfo, uint vertInAdr, uint vertOutAdr)
 		{
 			uint address = vertInAdr; // The vertex position should always be at the start of the struct, don't bother adding the offset
@@ -386,11 +391,16 @@ namespace SLZ.CustomStaticBatching
 			float4 position = ConvertRawToFloat(rawData, inFmt);
 			position.w = 1;
 			position = mul(ObjectToWorld, position);
+			if (vtxRounding)
+			{
+				position = RoundPositions(position, vtxRoundingAmount);
+			}
 			rawData = asuint(position);
 			uint outAddress = vertOutAdr; // The vertex position should always be at the start of the struct, don't bother adding the offset
 			WriteValueVtx(vertOut, outAddress, FORMAT_FLOAT, 3, rawData);
 		}
 
+		[BurstCompile]
 		void WriteNormalChannel(uint inPackedInfo, uint outPackedInfo, uint vertInAdr, uint vertOutAdr, uint vertInAdr2, uint vertOutAdr2)
 		{
 
@@ -422,6 +432,7 @@ namespace SLZ.CustomStaticBatching
 			}
 		}
 
+		[BurstCompile]
 		void WriteTangentChannel(uint inPackedInfo, uint outPackedInfo, uint vertInAdr, uint vertOutAdr, uint vertInAdr2, uint vertOutAdr2)
 		{
 			if (GetDimension(inPackedInfo) > 0u) // output mesh guaranteed to have the channel if an input mesh has it
@@ -451,6 +462,7 @@ namespace SLZ.CustomStaticBatching
 			}
 		}
 
+		[BurstCompile]
 		void WriteColorChannel(uint inPackedInfo, uint outPackedInfo, uint vertInAdr, uint vertOutAdr, uint vertInAdr2, uint vertOutAdr2)
 		{
 			if ((outPackedInfo & 0x0000000fu) > 0u) // input mesh not guaranteed to have color even if the output does, so we have to initialize the color to 1,1,1,1 if the input is missing the attribute
@@ -481,6 +493,7 @@ namespace SLZ.CustomStaticBatching
 			}
 		}
 
+		[BurstCompile]
 		void WriteUVChannel(uint inPackedInfo, uint outPackedInfo, uint vertInAdr, uint vertOutAdr, uint vertInAdr2, uint vertOutAdr2, bool lmScaleOffset, bool dynLmScaleOffset)
 		{
 			if (GetDimension(inPackedInfo) > 0u) // output mesh guaranteed to have the channel if an input mesh has it
@@ -493,7 +506,7 @@ namespace SLZ.CustomStaticBatching
 				float4 UV = ConvertRawToFloat(rawData, inFmt);
 				if (lmScaleOffset)
 					UV.xy = UV.xy * lightmapScaleOffset.xy + lightmapScaleOffset.zw;
-				if (lmScaleOffset)
+				if (dynLmScaleOffset)
 					UV.xy = UV.xy * dynLightmapScaleOffset.xy + dynLightmapScaleOffset.zw;
 				uint outFmt = GetFormat(outPackedInfo);
 				rawData = ConvertFloatToRaw(UV, outFmt);

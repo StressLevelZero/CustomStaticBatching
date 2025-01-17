@@ -20,6 +20,8 @@ namespace SLZ.CustomStaticBatching
 		}
 
 		public bool normalizeNormalTangent;
+		public bool roundVertexPositions;
+		public double vertexRoundingSize;
 
 		public byte[] serializedVtxFormats;
 
@@ -31,6 +33,8 @@ namespace SLZ.CustomStaticBatching
 		public CombineRendererSettings(bool initialize)
 		{
 			normalizeNormalTangent = false;
+			roundVertexPositions = false;
+			vertexRoundingSize = 0.002;
 			serializedVtxFormats = new byte[PackedChannel.NUM_VTX_CHANNELS];
 			if (initialize)
 			{

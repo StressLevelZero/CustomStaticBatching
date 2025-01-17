@@ -1049,23 +1049,25 @@ namespace SLZ.CustomStaticBatching
                     }
                 }
                 NativeArray<byte> inVert = meshList[meshIdx].GetVertexData<byte>(0);
-                TransferVtxBuffer vtxJob = new TransferVtxBuffer
-                {
-                    vertIn = inVert,
-                    vertIn2 = hasSecondBuffer ? meshList[meshIdx].GetVertexData<byte>(1) : inVert,
-                    vertOut = combinedMeshVert,
-                    vertOut2 = combinedMeshVert2,
-                    ObjectToWorld = rd[renderer].rendererTransform.localToWorldMatrix,
-                    WorldToObject = rd[renderer].rendererTransform.worldToLocalMatrix,
-                    lightmapScaleOffset = new float4(rd[renderer].meshRenderer.lightmapScaleOffset),
-                    dynLightmapScaleOffset = new float4(rd[renderer].meshRenderer.realtimeLightmapScaleOffset),
-                    offset_strideIn_offset2_strideIn2 = new int4(combinedMeshCopyIndex, stride, combinedMeshCopyIndex2, stride2 * tanSign),
-                    inPackedChannelInfo = meshPackedChannels2,
-                    strideOut = strideOut,
-                    outPackedChannelInfo = combinedPackedChannels,
-                    formatToBytes = formatToBytes,
+				TransferVtxBuffer vtxJob = new TransferVtxBuffer
+				{
+					vertIn = inVert,
+					vertIn2 = hasSecondBuffer ? meshList[meshIdx].GetVertexData<byte>(1) : inVert,
+					vertOut = combinedMeshVert,
+					vertOut2 = combinedMeshVert2,
+					ObjectToWorld = rd[renderer].rendererTransform.localToWorldMatrix,
+					WorldToObject = rd[renderer].rendererTransform.worldToLocalMatrix,
+					lightmapScaleOffset = new float4(rd[renderer].meshRenderer.lightmapScaleOffset),
+					dynLightmapScaleOffset = new float4(rd[renderer].meshRenderer.realtimeLightmapScaleOffset),
+					offset_strideIn_offset2_strideIn2 = new int4(combinedMeshCopyIndex, stride, combinedMeshCopyIndex2, stride2 * tanSign),
+					inPackedChannelInfo = meshPackedChannels2,
+					strideOut = strideOut,
+					outPackedChannelInfo = combinedPackedChannels,
+					formatToBytes = formatToBytes,
 					normalizeNormTan = crs.normalizeNormalTangent,
-                };
+					vtxRounding = crs.roundVertexPositions,
+					vtxRoundingAmount = crs.vertexRoundingSize
+				};
                 int vertexCount = meshList[meshIdx].vertexCount;
                 
                 combinedMeshCopyIndex += combinedStride * vertexCount;

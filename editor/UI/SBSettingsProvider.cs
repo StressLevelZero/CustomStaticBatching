@@ -189,6 +189,21 @@ namespace SLZ.CustomStaticBatching.Editor
 				SetToggleStyle(normalize);
 				normalize.BindProperty(settings);
 
+				Toggle round = new Toggle("Snap Vertices to increment");
+				round.bindingPath = rootBindingPath + "settings.roundVertexPositions";
+				round.tooltip = "Snap vertex positions to the nearest multiple of the increment value. This is to fix microscopic seams between modular room pieces";
+				SetToggleStyle(round);
+				round.BindProperty(settings);
+
+				DoubleField roundIncr = new DoubleField("Snapping increment");
+				roundIncr.bindingPath = rootBindingPath + "settings.vertexRoundingSize";
+				roundIncr.tooltip = "Grid size to snap vertices to when snapping is enabled";
+				SetToggleStyle(roundIncr);
+				roundIncr.BindProperty(settings);
+				roundIncr.SetEnabled(round.value);
+
+				round.RegisterValueChangedCallback( evt => { roundIncr.SetEnabled(evt.newValue); });
+
 				IntegerField highPIdxCount = new IntegerField("Max vertices per 32-bit index combined mesh");
 				highPIdxCount.isDelayed = true;
 				highPIdxCount.tooltip = "The maximum number of vertices that can be in a 32-bit index buffer combined mesh. Since a 32-bit index buffer can represent trillions of vertices, its a good idea to arbitrarily put a cap on how large the combined mesh can be";
@@ -279,6 +294,8 @@ namespace SLZ.CustomStaticBatching.Editor
 
 
 				root.Add(normalize);
+				root.Add(round);
+				root.Add(roundIncr);
 				root.Add(highPIdx);
 				root.Add(highPIdxCount);
 				root.Add(vertexSettings);
