@@ -49,18 +49,14 @@ namespace SLZ.CustomStaticBatching
 
 						if (lodRenderers[rIdx] == null) continue;
 
-						System.Type rendererType = lodRenderers[rIdx].GetType();
-						if (rendererType == typeof(SkinnedMeshRenderer) || rendererType.IsSubclassOf(typeof(SkinnedMeshRenderer)))
-						{
-							continue;
-						}
-
-                        MeshRenderer mrLod = (MeshRenderer)lodRenderers[rIdx];
                         bool isStatic = GameObjectUtility.AreStaticEditorFlagsSet(lodRenderers[rIdx].gameObject, StaticEditorFlags.BatchingStatic);
-                        if (isStatic && mrLod != null)
+                        if (isStatic)
                         {
-                            // if mrLod was already in the dictionary, that means it also belongs to a lower lod level. Hopefully no one is insane enough to reference the same renderer in different groups!
-                            lodMap.TryAdd(mrLod,
+							MeshRenderer mrLod = lodRenderers[rIdx] as MeshRenderer;
+							if (mrLod == null) continue;
+
+							// if mrLod was already in the dictionary, that means it also belongs to a lower lod level. Hopefully no one is insane enough to reference the same renderer in different groups!
+							lodMap.TryAdd(mrLod,
                                 new LODInfo { 
                                     lodRoot = sceneLodGroups[gIdx], 
                                     lodCenter = sceneLodGroups[gIdx].transform.TransformPoint(sceneLodGroups[gIdx].localReferencePoint),
