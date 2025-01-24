@@ -22,6 +22,7 @@ It works by using using the IProcessScene callback to modify the temporary copy 
 	- the material's instanceID
 	- the lightmap index
 	- (TODO) the batching zone volume containing the renderer
+	- the LOD level (or lack thereof) the render belongs to
 	- the hilbert index of the renderer's bounds center
 - Determine the vertex struct layout of all the meshes.
 - Bin the sorted meshes into appropriately sized groups

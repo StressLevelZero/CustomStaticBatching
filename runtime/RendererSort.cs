@@ -290,8 +290,8 @@ namespace SLZ.CustomStaticBatching
 				//	numClosest > 1 ? closestProbes[1].probe.GetHashCode() : -0x7fffffff,
 				//	numClosest > 0 ? closestProbes[0].probe.GetHashCode() : -0x7fffffff}; // Assumes little-endian
 				//closestProbes.Clear();
-				
-				ushort breakingState = (ushort)((mr.sharedMaterials.Length > 1 ? 0x4000u : 0u) + (mr.gameObject.activeInHierarchy && mr.enabled ? 0u : 1u));
+				bool isMultiMaterial = IsMultiMaterial(mr.sharedMaterials);
+				ushort breakingState = (ushort)((isMultiMaterial ? 0x4000u : 0u) + (mr.gameObject.activeInHierarchy && mr.enabled ? 0u : 1u));
 				rendererSortItems[i] = new RendererSortItem
 				{
 					rendererArrayIdx = i,
@@ -381,6 +381,20 @@ namespace SLZ.CustomStaticBatching
 				};
 			}
 			return matShaderIDs;
+		}
+
+		static bool IsMultiMaterial(Material[] materials)
+		{
+			int numMats = materials.Length;
+			Material m0 = materials[0];
+			for (int mIdx = 1; mIdx < numMats; mIdx++)
+			{
+				if (materials[mIdx] != m0)
+				{
+					return true;
+				}
+			}
+			return false;
 		}
 
 		static void GetLodLevelsAndOrigins(List<MeshRenderer> meshRenderers, Dictionary<MeshRenderer, LODInfo> lodInfo, ref NativeArray<Vector3> positions, out int[] lodLevels)
