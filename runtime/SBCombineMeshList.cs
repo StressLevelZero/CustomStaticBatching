@@ -23,8 +23,8 @@ namespace SLZ.CustomStaticBatching
         public MeshFilter meshFilter;
         public MeshRenderer meshRenderer;
         public Transform rendererTransform;
-		public Shader shader;
-		public bool monomaterial;
+        public Shader shader;
+        public bool monomaterial;
     }
 
 
@@ -64,10 +64,10 @@ namespace SLZ.CustomStaticBatching
             //cMeshIdxRange = new List<int2>();
             cMeshIdxRange = new List<int2>();
             if (renderersLength == 0) return;
-			bool monoMaterial = sortedRenderers[0].monomaterial;
-			Shader currShader = sortedRenderers[0].shader;
-			
-			for (int rIdx = 0; rIdx < renderersLength; rIdx++)
+            bool monoMaterial = sortedRenderers[0].monomaterial;
+            Shader currShader = sortedRenderers[0].shader;
+            
+            for (int rIdx = 0; rIdx < renderersLength; rIdx++)
             {
             
                 int meshVertexCount = sortedRenderers[rIdx].mesh.vertexCount;
@@ -78,9 +78,9 @@ namespace SLZ.CustomStaticBatching
                     currentMeshIdx++;
                     meshGroupBeginIdx = rIdx;
                     vertexCount = meshVertexCount;
-					monoMaterial = sortedRenderers[rIdx].monomaterial;
-					currShader = sortedRenderers[rIdx].shader;
-				}
+                    monoMaterial = sortedRenderers[rIdx].monomaterial;
+                    currShader = sortedRenderers[rIdx].shader;
+                }
                 renderer2CMeshIdx[rIdx] = currentMeshIdx;
             
             }
@@ -116,10 +116,10 @@ namespace SLZ.CustomStaticBatching
             //cMeshIdxRange = new List<int2>();
             cMeshIdxRange = new List<int2>();
 
-			bool monoMaterial = sortedRenderers[0].monomaterial;
-			Shader currShader = sortedRenderers[0].shader;
+            bool monoMaterial = sortedRenderers[0].monomaterial;
+            Shader currShader = sortedRenderers[0].shader;
 
-			if (renderersLength == 0)
+            if (renderersLength == 0)
             {
                 largeIdxBinStart = 0; 
                 return;
@@ -140,9 +140,9 @@ namespace SLZ.CustomStaticBatching
                     currentMeshIdx++;
                     meshGroupBeginIdx = rIdx;
                     vertexCount = meshVertexCount;
-					monoMaterial = sortedRenderers[rIdx].monomaterial;
-					currShader = sortedRenderers[rIdx].shader;
-				}
+                    monoMaterial = sortedRenderers[rIdx].monomaterial;
+                    currShader = sortedRenderers[rIdx].shader;
+                }
                 renderer2CMeshIdx[rIdx] = currentMeshIdx;
 
             }
@@ -172,9 +172,9 @@ namespace SLZ.CustomStaticBatching
                         currentMeshIdx++;
                         meshGroupBeginIdx = rIdx;
                         vertexCount = meshVertexCount;
-						monoMaterial = sortedRenderers[rIdx].monomaterial;
-						currShader = sortedRenderers[rIdx].shader;
-					}
+                        monoMaterial = sortedRenderers[rIdx].monomaterial;
+                        currShader = sortedRenderers[rIdx].shader;
+                    }
                     renderer2CMeshIdx[rIdx] = currentMeshIdx;
                 }
 
@@ -555,16 +555,21 @@ namespace SLZ.CustomStaticBatching
             // Get the total number of vertices, submeshes, and valid renderers that make up this combined mesh
             int vertexCount = 0;
             int submeshCount = 0;
-            int rendererCount = 0;
+            int rendererCount = rendererRange.y - rendererRange.x;
             int[] validRendererIdx = new int[rendererRange.y - rendererRange.x];
+
+            bool[] isMonoMaterial = new bool[rendererCount];
+
             // Iterate once over the range of renderers, counting the total verticies and submeshes.
-            for (int i = rendererRange.x; i < rendererRange.y; i++)
+            
+            for (int rangeIdx = rendererRange.x, rendererIdx = 0; rangeIdx < rendererRange.y; rangeIdx++)
             {
-                    Mesh tempMesh = rd[i].mesh;
-                    vertexCount += rd[i].mesh.vertexCount;
-                    submeshCount += rd[i].mesh.subMeshCount;
-                    validRendererIdx[rendererCount] = i;
-                    rendererCount++;
+				bool ismm = IsMonoMaterial(rd[rangeIdx].meshRenderer);
+				isMonoMaterial[rendererIdx] = ismm;
+				vertexCount += rd[rangeIdx].mesh.vertexCount;
+				submeshCount += ismm ? 1 : rd[rangeIdx].mesh.subMeshCount;
+				validRendererIdx[rendererIdx] = rangeIdx;
+				rendererIdx++;
             }
         
 
@@ -624,34 +629,71 @@ namespace SLZ.CustomStaticBatching
                 }
                 totalBounds.Encapsulate(bounds);
 
+				// Flatten submeshes from renderers with multiple material slots of the same material to one submesh
+				if (isMonoMaterial[i])
+				{
+					Debug.Log($"IsMonoMaterial: {AnimationUtility.CalculateTransformPath(rd[rIdx].rendererTransform, null)}");
+					Material mat0 = rd[rIdx].meshRenderer.sharedMaterials[0];
+					rd[rIdx].meshRenderer.sharedMaterials = new Material[1] { mat0 };
+					SubMeshDescriptor smd0 = rd[rIdx].mesh.GetSubMesh(0);
+					int smdFirstVertex = smd0.firstVertex;
+					int smdVtxCount = smd0.vertexCount;
+					int smdIndexCount = smd0.indexCount;
+					Bounds smdBounds = smd0.bounds;
+					for (int sm = 1; sm < smCount; sm++)
+					{
+						SubMeshDescriptor smd = rd[rIdx].mesh.GetSubMesh(sm);
+						smdFirstVertex = math.min(smdFirstVertex, smd.firstVertex);
+						smdIndexCount += smd.indexCount;
+						smdVtxCount += smd.vertexCount;
+						smdBounds.Encapsulate(smd.bounds);
+						//Debug.Log("Submesh " + smPointer + " index start: " + smd2.indexStart + " bounds: " + smd2.bounds);
+					}
+					SubMeshDescriptor smd2 = new SubMeshDescriptor()
+					{
+						baseVertex = 0,
+						firstVertex = smdFirstVertex + vtxPointer,
+						bounds = smdBounds,
+						indexCount = smdIndexCount,
+						indexStart = idxCount,
+						vertexCount = smdVtxCount,
+						topology = smd0.topology,
+					};
+					submesh2Renderer[smPointer] = (ushort)i;
+					submeshBounds[smPointer] = smdBounds;
+					//Debug.Log("Submesh " + smPointer + " index start: " + smd2.indexStart + " bounds: " + smd2.bounds);
+					maxSmIdxCount = math.max(maxSmIdxCount, smdIndexCount);
+					idxCount += smdIndexCount;
+					subMeshDescriptors[smPointer] = smd2;
 
-                for (int sm = 0; sm < smCount; sm++)
+					smPointer++;
+				}
+                else for (int sm = 0; sm < smCount; sm++)
                 {
+					SubMeshDescriptor smd = rd[rIdx].mesh.GetSubMesh(sm);
+					SubMeshDescriptor smd2 = new SubMeshDescriptor()
+					{
+					    baseVertex = 0,
+					    firstVertex = smd.firstVertex + vtxPointer,
+					    bounds = smd.bounds,
+					    indexCount = smd.indexCount,
+					    indexStart = idxCount,
+					    vertexCount = smd.vertexCount,
+					    topology = smd.topology,
 
+					};
 
-                    SubMeshDescriptor smd = rd[rIdx].mesh.GetSubMesh(sm);
-                    SubMeshDescriptor smd2 = new SubMeshDescriptor()
-                    {
-                        baseVertex = 0,
-                        firstVertex = smd.firstVertex + vtxPointer,
-                        bounds = smd.bounds,
-                        indexCount = smd.indexCount,
-                        indexStart = idxCount,
-                        vertexCount = smd.vertexCount,
-                        topology = smd.topology,
+					submesh2Renderer[smPointer] = (ushort)i;
+					submeshBounds[smPointer] = smd.bounds;
+					//Debug.Log("Submesh " + smPointer + " index start: " + smd2.indexStart + " bounds: " + smd2.bounds);
+					maxSmIdxCount = math.max(maxSmIdxCount, smd.indexCount);
+					idxCount += smd.indexCount;
+					subMeshDescriptors[smPointer] = smd2;
 
-                    };
-
-                    submesh2Renderer[smPointer] = (ushort)i;
-                    submeshBounds[smPointer] = smd.bounds;
-                    //Debug.Log("Submesh " + smPointer + " index start: " + smd2.indexStart + " bounds: " + smd2.bounds);
-                    maxSmIdxCount = math.max(maxSmIdxCount, smd.indexCount);
-                    idxCount += smd.indexCount;
-                    subMeshDescriptors[smPointer] = smd2;
-
-                    smPointer++;
+					smPointer++;
                 }
-                combinedSmInfo.rendererIdx[meshPointer] = rIdx;
+				//Debug.Log($"Submesh index: {firstSubMesh}, Range {smPointer - firstSubMesh}, {AnimationUtility.CalculateTransformPath(rd[rIdx].rendererTransform, null)}");
+				combinedSmInfo.rendererIdx[meshPointer] = rIdx;
                 combinedSmInfo.submeshStart[meshPointer] = firstSubMesh;
                 combinedSmInfo.submeshCount[meshPointer] = smPointer - firstSubMesh;
                 meshPointer++;
@@ -706,8 +748,40 @@ namespace SLZ.CustomStaticBatching
                 MeshData tmesh = uniqueMeshList[meshIdx];
                 int firstSubMesh = combinedSmInfo.submeshStart[i];
                 int totalIdxCount = 0;
+				int smCount = combinedSmInfo.submeshCount[i];
 
-                for (int sm = 0; sm < combinedSmInfo.submeshCount[i]; sm++)
+				// If this is a multi-submesh renderer using only one material, copy all submeshes indices sequentially as though they constitute a single submesh.
+				if (isMonoMaterial[i])
+				{
+					smCount = tmesh.subMeshCount;
+					int numIdx2 = (int)subMeshDescriptors[firstSubMesh].indexCount;
+					int idxPointer2 = idxPointer;
+					for (int sm = 0; sm < smCount; sm++)
+					{
+						SubMeshDescriptor smd = tmesh.GetSubMesh(sm);
+						int numIdx = smd.indexCount;
+						if (highPIdxBuffer)
+						{
+							NativeArray<int> idxAlias = NativeArraySubArray.GetSubArrayAlias<T, int>(indexBuffer, idxPointer, numIdx);
+							tmesh.GetIndices(idxAlias, sm);
+						}
+						else
+						{
+							NativeArray<ushort> idxAlias = NativeArraySubArray.GetSubArrayAlias<T, ushort>(indexBuffer, idxPointer, numIdx);
+							tmesh.GetIndices(idxAlias, sm);
+						}
+						idxPointer += numIdx;
+						totalIdxCount += numIdx;
+					}
+					//NativeArray<T>.Copy(CSBListExt.GetInternalArray(indices), 0, indexBuffer, idxPointer, numIdx);
+
+					int sign = rendererScaleSign[rendererIdx] == 0 ? 1 : 0;
+					int topo = topologyCount[(int)subMeshDescriptors[smPointer2].topology];
+					topo *= sign;
+					indexStartCountOffsetFlip[smPointer2] = new int4(idxPointer2, numIdx2, subMeshDescriptors[smPointer2].firstVertex, topo);
+					smPointer2++;
+				}
+				else for (int sm = 0; sm < smCount; sm++)
                 {
                     int totalSm = firstSubMesh + sm;
                     int numIdx = (int)subMeshDescriptors[totalSm].indexCount;
@@ -764,6 +838,23 @@ namespace SLZ.CustomStaticBatching
             indexStartCountOffsetFlip.Dispose();
 
             return combinedMesh;
+        }
+
+		/// <summary>
+		/// Determines if a renderer with multiple material slots has the same material applied to every slot.
+		/// </summary>
+		/// <param name="r">MeshRenderer to check.</param>
+		/// <returns>True if the renderer has more than one material slot and every material slot has the same material</returns>
+        bool IsMonoMaterial(MeshRenderer r)
+        {
+            Material[] sm = r.sharedMaterials;
+            int numMat = sm.Length;
+            bool isMonoMaterial = numMat > 1;
+            for (int i = 1; i < numMat; i++)
+            {
+                if (sm[i] != sm[0]) return false;
+            }
+            return isMonoMaterial;
         }
 
         /// <summary>
@@ -1049,25 +1140,25 @@ namespace SLZ.CustomStaticBatching
                     }
                 }
                 NativeArray<byte> inVert = meshList[meshIdx].GetVertexData<byte>(0);
-				TransferVtxBuffer vtxJob = new TransferVtxBuffer
-				{
-					vertIn = inVert,
-					vertIn2 = hasSecondBuffer ? meshList[meshIdx].GetVertexData<byte>(1) : inVert,
-					vertOut = combinedMeshVert,
-					vertOut2 = combinedMeshVert2,
-					ObjectToWorld = rd[renderer].rendererTransform.localToWorldMatrix,
-					WorldToObject = rd[renderer].rendererTransform.worldToLocalMatrix,
-					lightmapScaleOffset = new float4(rd[renderer].meshRenderer.lightmapScaleOffset),
-					dynLightmapScaleOffset = new float4(rd[renderer].meshRenderer.realtimeLightmapScaleOffset),
-					offset_strideIn_offset2_strideIn2 = new int4(combinedMeshCopyIndex, stride, combinedMeshCopyIndex2, stride2 * tanSign),
-					inPackedChannelInfo = meshPackedChannels2,
-					strideOut = strideOut,
-					outPackedChannelInfo = combinedPackedChannels,
-					formatToBytes = formatToBytes,
-					normalizeNormTan = crs.normalizeNormalTangent,
-					vtxRounding = crs.roundVertexPositions,
-					vtxRoundingAmount = crs.vertexRoundingSize
-				};
+                TransferVtxBuffer vtxJob = new TransferVtxBuffer
+                {
+                    vertIn = inVert,
+                    vertIn2 = hasSecondBuffer ? meshList[meshIdx].GetVertexData<byte>(1) : inVert,
+                    vertOut = combinedMeshVert,
+                    vertOut2 = combinedMeshVert2,
+                    ObjectToWorld = rd[renderer].rendererTransform.localToWorldMatrix,
+                    WorldToObject = rd[renderer].rendererTransform.worldToLocalMatrix,
+                    lightmapScaleOffset = new float4(rd[renderer].meshRenderer.lightmapScaleOffset),
+                    dynLightmapScaleOffset = new float4(rd[renderer].meshRenderer.realtimeLightmapScaleOffset),
+                    offset_strideIn_offset2_strideIn2 = new int4(combinedMeshCopyIndex, stride, combinedMeshCopyIndex2, stride2 * tanSign),
+                    inPackedChannelInfo = meshPackedChannels2,
+                    strideOut = strideOut,
+                    outPackedChannelInfo = combinedPackedChannels,
+                    formatToBytes = formatToBytes,
+                    normalizeNormTan = crs.normalizeNormalTangent,
+                    vtxRounding = crs.roundVertexPositions,
+                    vtxRoundingAmount = crs.vertexRoundingSize
+                };
                 int vertexCount = meshList[meshIdx].vertexCount;
                 
                 combinedMeshCopyIndex += combinedStride * vertexCount;

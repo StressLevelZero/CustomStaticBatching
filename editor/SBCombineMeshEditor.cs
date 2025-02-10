@@ -195,7 +195,7 @@ namespace SLZ.CustomStaticBatching.Editor
 				SerializedProperty spFirst = so.FindProperty("m_StaticBatchInfo.firstSubMesh");
 				spFirst.intValue = submeshIdx;
 				
-				int submeshCount = rd[i].mesh.subMeshCount;
+				int submeshCount = rd[i].meshRenderer.sharedMaterials.Length;
 				SerializedProperty spCount = so.FindProperty("m_StaticBatchInfo.subMeshCount");
 				spCount.intValue = submeshCount;
 				
