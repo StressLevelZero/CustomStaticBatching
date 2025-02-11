@@ -632,7 +632,7 @@ namespace SLZ.CustomStaticBatching
 				// Flatten submeshes from renderers with multiple material slots of the same material to one submesh
 				if (isMonoMaterial[i])
 				{
-					Debug.Log($"IsMonoMaterial: {AnimationUtility.CalculateTransformPath(rd[rIdx].rendererTransform, null)}");
+					// Debug.Log($"IsMonoMaterial: {AnimationUtility.CalculateTransformPath(rd[rIdx].rendererTransform, null)}");
 					Material mat0 = rd[rIdx].meshRenderer.sharedMaterials[0];
 					rd[rIdx].meshRenderer.sharedMaterials = new Material[1] { mat0 };
 					SubMeshDescriptor smd0 = rd[rIdx].mesh.GetSubMesh(0);
