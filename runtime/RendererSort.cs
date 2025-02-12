@@ -320,6 +320,8 @@ namespace SLZ.CustomStaticBatching
 			{
 				int rendererIdx = rendererSortItems[i].rendererArrayIdx;
 				MeshFilter filter = filters[rendererIdx];
+				bool monoMaterial = (rendererSortItems[i].breakingState & 0x4000u) == 0u;
+				int materialCount = meshRenderers[rendererIdx].sharedMaterials.Length;
 				rendererData[i] = new RendererData
 				{
 					mesh = filter.sharedMesh,
@@ -327,7 +329,8 @@ namespace SLZ.CustomStaticBatching
 					meshRenderer = meshRenderers[rendererIdx],
 					rendererTransform = filter.transform,
 					shader = meshRenderers[rendererIdx].sharedMaterial?.shader,
-					monomaterial = (rendererSortItems[i].breakingState & 0x4000u) == 0u
+					submeshCount = materialCount,
+					combineDuplicateMaterials = monoMaterial && (materialCount > 1)
 				};
 			}
 			rendererSortItems.Dispose();

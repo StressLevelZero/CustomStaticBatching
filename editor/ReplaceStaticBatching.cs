@@ -91,12 +91,12 @@ namespace SLZ.CustomStaticBatching
                     continue;
                 }
 
-                if (mr.sharedMaterials.Length > mf.sharedMesh.subMeshCount)
-                {
-                    Debug.LogError($"SLZ Static Batching: renderer with more materials than submeshes! ({AnimationUtility.CalculateTransformPath(go.transform, null)})\n" +
-                        "Skipping static batching for this renderer as the extra material slots will draw using the submeshes from the next object in the combined mesh buffer rather than redrawing the original submesh");
-                    continue;
-                }
+                //if (mr.sharedMaterials.Length > mf.sharedMesh.subMeshCount)
+                //{
+                //    Debug.LogError($"SLZ Static Batching: renderer with more materials than submeshes! ({AnimationUtility.CalculateTransformPath(go.transform, null)})\n" +
+                //        "Skipping static batching for this renderer as the extra material slots will draw using the submeshes from the next object in the combined mesh buffer rather than redrawing the original submesh");
+                //    continue;
+                //}
 
                 if (!allow32bitIdxBatches && mf.sharedMesh.indexFormat == UnityEngine.Rendering.IndexFormat.UInt32)
                 {
