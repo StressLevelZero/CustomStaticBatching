@@ -9,7 +9,8 @@
         "GUID:329b4ccd385744985bf3f83cfd77dfe7",
         "GUID:2665a8d13d1b3f18800f46e256720795",
         "GUID:b75d3cd3037d383a8d1e2f9a26d73d8a",
-        "GUID:b3170da2b0ad74e4aad542674030756e"
+        "GUID:b3170da2b0ad74e4aad542674030756e",
+        "GUID:80fd4d055bc59fb46a7cfe952d8d1428"
     ],
     "includePlatforms": [
         "Editor"
@@ -20,6 +21,12 @@
     "precompiledReferences": [],
     "autoReferenced": true,
     "defineConstraints": [],
-    "versionDefines": [],
+    "versionDefines": [
+        {
+            "name": "com.newblood.lighting-internals",
+            "expression": "1.0.0",
+            "define": "USING_NEWBLOOD_LIGHTING_INTERNALS"
+        }
+    ],
     "noEngineReferences": false
 }

@@ -13,6 +13,7 @@ using Unity.Jobs;
 using static UnityEngine.Mesh;
 using UnityEngine.Assertions;
 using static SLZ.CustomStaticBatching.PackedChannel;
+using System.Linq;
 
 namespace SLZ.CustomStaticBatching
 {
@@ -26,7 +27,9 @@ namespace SLZ.CustomStaticBatching
         public Shader shader;
         public bool combineDuplicateMaterials;
         public int submeshCount;
-    }
+		public ushort lightmapIdx;
+		public ushort dynLightmapIdx;
+	}
 
 
     public class SBCombineMeshList
@@ -120,8 +123,10 @@ namespace SLZ.CustomStaticBatching
 
             bool monoMaterial = sortedRenderers[0].submeshCount == 1;
             Shader currShader = sortedRenderers[0].shader;
+			bool currLm = sortedRenderers[0].lightmapIdx != (ushort)65535u;
+			bool currDynLm = sortedRenderers[0].dynLightmapIdx != (ushort)65535u;
 
-            if (renderersLength == 0)
+			if (renderersLength == 0)
             {
                 largeIdxBinStart = 0; 
                 return;
@@ -137,7 +142,17 @@ namespace SLZ.CustomStaticBatching
                 int meshVertexCount = m.vertexCount;
                 vertexCount += meshVertexCount;
                 bool thisMono = sortedRenderers[rIdx].submeshCount == 1;
-                if (vertexCount >= 0xffff || monoMaterial != thisMono || (thisMono && (currShader != sortedRenderers[rIdx].shader)))
+
+				// Separate lightmapped/dynamic lightmapped objects so that TEXCOORD1 and 2
+				// are guaranteed to only used for lightmapping purposes
+				bool thisLm = sortedRenderers[rIdx].lightmapIdx != (ushort)65535u;
+				bool thisDynLm = sortedRenderers[rIdx].dynLightmapIdx != (ushort)65535u;
+
+				if (vertexCount >= 0xffff ||
+					currLm != thisLm ||
+					currDynLm != thisDynLm ||
+					monoMaterial != thisMono || 
+					(thisMono && (currShader != sortedRenderers[rIdx].shader)) )
                 {
                     cMeshIdxRange.Add(new int2(meshGroupBeginIdx, rIdx));
                     currentMeshIdx++;
@@ -145,6 +160,8 @@ namespace SLZ.CustomStaticBatching
                     vertexCount = meshVertexCount;
                     monoMaterial = thisMono;
                     currShader = sortedRenderers[rIdx].shader;
+					currLm = thisLm;
+					currDynLm = thisDynLm;
                 }
                 renderer2CMeshIdx[rIdx] = currentMeshIdx;
 
@@ -232,7 +249,7 @@ namespace SLZ.CustomStaticBatching
         {
             SerialGetUniqueMeshes(renderers, out meshList, out renderer2Mesh);
 #if UNITY_EDITOR
-            meshDataArray = MeshUtility.AcquireReadOnlyMeshData(meshList);
+			meshDataArray = MeshUtility.AcquireReadOnlyMeshData(meshList);
 #else
             meshDataArray = Mesh.AcquireReadOnlyMeshData(meshList);
 #endif
@@ -458,9 +475,9 @@ namespace SLZ.CustomStaticBatching
                     #if UNITY_EDITOR
                     isLightmapped = isLightmapped || (GameObjectUtility.AreStaticEditorFlagsSet(mr.gameObject, StaticEditorFlags.ContributeGI) && mr.receiveGI == ReceiveGI.Lightmaps);
                     #else
-                    isLightmapped = isLightmapped || (mr.lightmapIndex < 0xFFFE && mr.lightmapIndex > 0);
+                    isLightmapped = isLightmapped || (mr.lightmapIndex < 0xFFFF && mr.lightmapIndex > 0);
                     #endif
-                    isDynamicLightmapped = isDynamicLightmapped || (mr.realtimeLightmapIndex < 0xFFFE && mr.realtimeLightmapIndex > 0);
+                    isDynamicLightmapped = isDynamicLightmapped || (renderers[i].dynLightmapIdx < 0xFFFFu);
                 }
             }
 
@@ -1089,7 +1106,7 @@ namespace SLZ.CustomStaticBatching
         }
 
         internal void JobCopyMeshes(ref NativeArray<PackedChannel> meshPackedChannels, ref NativeArray<PackedChannel> combinedPackedChannels, ref NativeArray<byte> rendererScaleSign, Mesh combinedMesh,
-    RendererData[] rd, int2 rendererRange, int[] renderer2Mesh, MeshDataArray meshList)
+    RendererData[] rd, int2 rendererRange, int[] renderer2Mesh, MeshDataArray meshList, bool hasDynLmUVs, int[] rIdxToDynIdx, MeshDataArray dynUvMeshDataArray)
         {
             // Figure out what lightmaps are potentially present in the combined mesh.
             // If either UV1 or UV2 are in the combined mesh, but not in an input mesh,
@@ -1114,9 +1131,7 @@ namespace SLZ.CustomStaticBatching
             NativeArray<PackedChannel> meshPackedChannels2 = new NativeArray<PackedChannel>(NUM_VTX_CHANNELS, Allocator.TempJob);
             for (int renderer = rendererRange.x; renderer < rendererRange.y; renderer++)
             {
-
-                int meshIdx = renderer2Mesh[renderer];
-                
+				int meshIdx = renderer2Mesh[renderer];
                 int stride = meshList[meshIdx].GetVertexBufferStride(0);
                 int stride2 = meshList[meshIdx].GetVertexBufferStride(1);
                 bool hasSecondBuffer = stride2 > 0;
@@ -1145,15 +1160,40 @@ namespace SLZ.CustomStaticBatching
                     }
                     if (missingDynLM)
                     {
-                        meshPackedChannels2[6] = meshPackedChannels2[5].dimension == 0 ? meshPackedChannels2[4] : meshPackedChannels2[5];
+                        meshPackedChannels2[6] = meshPackedChannels2[5];
                     }
                 }
                 NativeArray<byte> inVert = meshList[meshIdx].GetVertexData<byte>(0);
-                TransferVtxBuffer vtxJob = new TransferVtxBuffer
+
+				bool hasDynLmUvMesh = false;
+				NativeArray<byte> dynUvVtxData = (default);
+				if (hasDynLightmap && hasDynLmUVs)
+				{
+					int dynIdx = rIdxToDynIdx[renderer];
+					if (dynIdx > -1)
+					{
+						Mesh.MeshData dynUVData = dynUvMeshDataArray[dynIdx];
+						if (dynUVData.vertexCount != meshList[meshIdx].vertexCount)
+						{
+							Debug.LogError($"Renderer {rd[renderer].rendererTransform.name} has mismatched dynamic lightmap UV mesh, this mesh has {meshList[meshIdx].vertexCount} vertices, the uv mesh has {dynUVData.vertexCount}");
+						}
+						else
+						{
+							hasDynLmUvMesh = true;
+							// unity's dynamic lightmap uv meshes always have only a single UV channel
+							meshPackedChannels2[6] = new PackedChannel { dimension = 2, format = (int)VtxFormats.Float32, offset = 0, stream = 0 };
+							dynUvVtxData = dynUVData.GetVertexData<byte>(0);
+						}
+					}
+				}
+
+
+				TransferVtxBuffer vtxJob = new TransferVtxBuffer
                 {
                     vertIn = inVert,
                     vertIn2 = hasSecondBuffer ? meshList[meshIdx].GetVertexData<byte>(1) : inVert,
-                    vertOut = combinedMeshVert,
+					vertInDynLM = hasDynLmUvMesh ? dynUvVtxData : inVert,
+					vertOut = combinedMeshVert,
                     vertOut2 = combinedMeshVert2,
                     ObjectToWorld = rd[renderer].rendererTransform.localToWorldMatrix,
                     WorldToObject = rd[renderer].rendererTransform.worldToLocalMatrix,
@@ -1166,8 +1206,11 @@ namespace SLZ.CustomStaticBatching
                     formatToBytes = formatToBytes,
                     normalizeNormTan = crs.normalizeNormalTangent,
                     vtxRounding = crs.roundVertexPositions,
-                    vtxRoundingAmount = crs.vertexRoundingSize
-                };
+                    vtxRoundingAmount = crs.vertexRoundingSize,
+					hasDynLM = hasDynLightmap,
+					hasDynLmUvMesh = hasDynLmUvMesh,
+
+				};
                 int vertexCount = meshList[meshIdx].vertexCount;
                 
                 combinedMeshCopyIndex += combinedStride * vertexCount;

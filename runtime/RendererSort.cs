@@ -39,6 +39,7 @@ namespace SLZ.CustomStaticBatching
 		public ulong variantHash;
 		public int materialID;
 		public ushort lightmapIdx;
+		public ushort dynLightmapIdx;
 		//public ulong probeId; // Pack two int IDs for the two most important probes // Not used for now, seems to cause issues
 		public ulong hilbertIdx;
 		public int LODLevel;
@@ -69,6 +70,10 @@ namespace SLZ.CustomStaticBatching
 			if (lightmapIdx != other.lightmapIdx)
 			{
 				return lightmapIdx > other.lightmapIdx ? 1 : -1;
+			}
+			if (dynLightmapIdx != other.dynLightmapIdx)
+			{
+				return dynLightmapIdx > other.dynLightmapIdx ? 1 : -1;
 			}
 			//if (probeId != other.probeId)
 			//{
@@ -292,6 +297,7 @@ namespace SLZ.CustomStaticBatching
 				//closestProbes.Clear();
 				bool isMultiMaterial = IsMultiMaterial(mr.sharedMaterials);
 				ushort breakingState = (ushort)((isMultiMaterial ? 0x4000u : 0u) + (mr.gameObject.activeInHierarchy && mr.enabled ? 0u : 1u));
+				
 				rendererSortItems[i] = new RendererSortItem
 				{
 					rendererArrayIdx = i,
@@ -300,6 +306,7 @@ namespace SLZ.CustomStaticBatching
 					variantHash = matShaderIds[materialIdx].keywordHash,
 					materialID = matShaderIds[materialIdx].materialID,
 					lightmapIdx = (ushort)mr.lightmapIndex,
+					dynLightmapIdx = (ushort)mr.realtimeLightmapIndex,
 					//probeId = MemoryMarshal.Cast<int, ulong>(probeHash)[0], // Pack two int IDs for the two most important probes
 					zoneID = 0,
 					hilbertIdx = hilbertIdxs[i],
@@ -330,7 +337,10 @@ namespace SLZ.CustomStaticBatching
 					rendererTransform = filter.transform,
 					shader = meshRenderers[rendererIdx].sharedMaterial?.shader,
 					submeshCount = materialCount,
-					combineDuplicateMaterials = monoMaterial && (materialCount > 1)
+					combineDuplicateMaterials = monoMaterial && (materialCount > 1),
+					lightmapIdx = (ushort)meshRenderers[rendererIdx].lightmapIndex, 
+					dynLightmapIdx = (ushort)meshRenderers[rendererIdx].realtimeLightmapIndex
+					
 				};
 			}
 			rendererSortItems.Dispose();

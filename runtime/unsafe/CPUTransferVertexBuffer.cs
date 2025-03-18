@@ -36,6 +36,10 @@ namespace SLZ.CustomStaticBatching
 		public NativeArray<byte> vertIn2;
 
 		[NativeDisableUnsafePtrRestriction]
+		[ReadOnly]
+		public NativeArray<byte> vertInDynLM;
+
+		[NativeDisableUnsafePtrRestriction]
 		[NativeDisableParallelForRestriction]
 		[WriteOnly]
 		public NativeArray<byte> vertOut;
@@ -70,11 +74,16 @@ namespace SLZ.CustomStaticBatching
 		public bool vtxRounding;
 		[ReadOnly]
 		public double vtxRoundingAmount;
+		[ReadOnly]
+		public bool hasDynLM;
+		[ReadOnly]
+		public bool hasDynLmUvMesh;
 
 		public void Execute(int i)
 		{
 			uint id = (uint)i;
 			uint vertInAdr = (id * asuint(offset_strideIn_offset2_strideIn2.y));
+			uint vertInDynAdr = (id * asuint(8)); // Always float32x2
 			uint vertOutAdr = (id * asuint(strideOut.x) + asuint(offset_strideIn_offset2_strideIn2.x));
 			uint vertIn2Adr = (id * asuint(abs(offset_strideIn_offset2_strideIn2.w)));
 			uint vertOut2Adr = (id * asuint(strideOut.y) + asuint(offset_strideIn_offset2_strideIn2.z));
@@ -86,7 +95,7 @@ namespace SLZ.CustomStaticBatching
 
 			for (int r = 4; r < 12; r++)
 			{
-				WriteUVChannel(inPackedChannelInfo[r].packedData, outPackedChannelInfo[r].packedData, vertInAdr, vertOutAdr, vertIn2Adr, vertOut2Adr, (r == 5), (r == 6));
+				WriteUVChannel(inPackedChannelInfo[r].packedData, outPackedChannelInfo[r].packedData, vertInAdr, vertOutAdr, vertIn2Adr, vertOut2Adr, vertInDynAdr, (r == 5), (r == 6));
 			}
 		}
 	
@@ -494,19 +503,28 @@ namespace SLZ.CustomStaticBatching
 		}
 
 		[BurstCompile]
-		void WriteUVChannel(uint inPackedInfo, uint outPackedInfo, uint vertInAdr, uint vertOutAdr, uint vertInAdr2, uint vertOutAdr2, bool lmScaleOffset, bool dynLmScaleOffset)
+		void WriteUVChannel(uint inPackedInfo, uint outPackedInfo, uint vertInAdr, uint vertOutAdr, uint vertInAdr2, uint vertOutAdr2, uint vertInDynAddr, bool lmScaleOffset, bool dynLm)
 		{
 			if (GetDimension(inPackedInfo) > 0u) // output mesh guaranteed to have the channel if an input mesh has it
 			{
 				bool altIn = GetStream(inPackedInfo) > 0;
-				uint address = (altIn ? vertInAdr2 : vertInAdr) + GetOffset(inPackedInfo);
-				uint4 rawData = Load4(altIn ? vertIn2 : vertIn, address);
 				uint inFmt = GetFormat(inPackedInfo);
+				uint4 rawData;
+				if (dynLm && hasDynLmUvMesh)
+				{
+					rawData = Load4(vertInDynLM, vertInDynAddr);
+					inFmt = FORMAT_FLOAT;
+				}
+				else 
+				{
+					uint address = (altIn ? vertInAdr2 : vertInAdr) + GetOffset(inPackedInfo);
+					rawData = Load4(altIn ? vertIn2 : vertIn, address);
+				}
 
 				float4 UV = ConvertRawToFloat(rawData, inFmt);
 				if (lmScaleOffset)
 					UV.xy = UV.xy * lightmapScaleOffset.xy + lightmapScaleOffset.zw;
-				if (dynLmScaleOffset)
+				if (dynLm)
 					UV.xy = UV.xy * dynLightmapScaleOffset.xy + dynLightmapScaleOffset.zw;
 				uint outFmt = GetFormat(outPackedInfo);
 				rawData = ConvertFloatToRaw(UV, outFmt);

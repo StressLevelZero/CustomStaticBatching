@@ -31,6 +31,15 @@ It works by using using the IProcessScene callback to modify the temporary copy 
 - Copy and translate the vertex data of each renderer into their combined mesh
 - Assign the combined mesh and submesh index and count to each renderer, and remove the static batching flag
 
+## Realtime GI
+
+Normally, this utility does not work with realtime GI. This is because unity does not use the mesh's lightmap UVs for the dynamic lightmap. Instead, on bake it creates a new mesh that contains a duplicate of the original mesh's lightmap UV but rotated by some amount. This mesh is stored inside the lighting data asset, and unfortunately the lighting data class has no public API's for accessing its data.
+
+If you want to use this utility with realtime GI, you can also install [NewBlood's Lighting Internals package](https://github.com/NewBloodInteractive/com.newblood.lighting-internals). The utility will auto-detect when this package is present,
+and will use it to extract the dynamic lightmap mesh copies from the lighting data asset. However, this package (probably) only works with unity versions before Unity 6 as 6 overhauled the light baking systems completely. Additionally, the process of reserializing the lighting data asset to a clone that can be accessed adds a massive amount of overhead to the batching process, on the order of tens of seconds. This will only happen in scenes that actually use realtime GI however.
+
+A gotcha to be aware of is that if objects have the exact same dynamic lightmap UV offset/scale/index this utility will fail. This normally never happens, but scripts using the Lighting Internals package can do this (for example, moving LODs to all occupy the same spot in the lightmap). I cannot robustly associate an object in the scene with a uv mesh in the lighting data asset. The lighting data asset uses global IDs to associate its data with the scene. During scene build, the batching is operating on a copy of the scene and each renderer has a new global ID that has no association in the lighting data asset. To get around this, I use the dynamic lightmap offset, scale, and index as a unique identifier for each renderer. 
+
 # TODO
 
 - Clean up the code and organize it better

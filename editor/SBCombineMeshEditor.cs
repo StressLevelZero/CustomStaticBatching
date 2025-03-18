@@ -11,6 +11,8 @@ using static SLZ.CustomStaticBatching.SBCombineMeshList;
 using static SLZ.CustomStaticBatching.PackedChannel;
 using static UnityEngine.Mesh;
 using System.Reflection;
+using UnityEngine.Rendering;
+using System.Text;
 
 namespace SLZ.CustomStaticBatching.Editor
 {
@@ -49,10 +51,11 @@ namespace SLZ.CustomStaticBatching.Editor
 			return transferVtxBufferCompute;
 		}
 
-	
+
 		#endregion
 
 
+		static readonly ProfilerMarker profilerGetDynamicLightMapMeshes = new ProfilerMarker("CustomStaticBatching.GetDynamicLightMapMeshes");
 
 		static readonly ProfilerMarker profilerScaleSign = new ProfilerMarker("CustomStaticBatching.RendererScaleSign");
 		static readonly ProfilerMarker profilerGetUniqueMeshes = new ProfilerMarker("CustomStaticBatching.GetUniqueMeshes");
@@ -74,7 +77,17 @@ namespace SLZ.CustomStaticBatching.Editor
 		/// <param name="sortedRenderers">List of presorted renderers, assumes all 32-bit index mesh renderers are at the end</param>
 		public static void GenerateStaticBatches(this SBCombineMeshList cml, RendererData[] sortedRenderers)
 		{
-			List<Mesh> uniqueMeshList;
+			List<Mesh> uvMeshes = null;
+			Mesh.MeshDataArray dynUvMeshDataArray = (default);
+			int[] rIdxToDynIdx = null;
+			bool hasDynUVMeshes = false;
+#if USING_NEWBLOOD_LIGHTING_INTERNALS
+			profilerGetDynamicLightMapMeshes.Begin();
+			hasDynUVMeshes = GetDynLMMeshes.GetDynamicLightMapMeshes(sortedRenderers, out uvMeshes, out rIdxToDynIdx, out dynUvMeshDataArray, out ScriptableObject scriptableLightingData);
+			profilerGetDynamicLightMapMeshes.End();
+#endif
+
+			List <Mesh> uniqueMeshList;
 			int[] renderer2Mesh;
 			MeshDataArray uniqueMeshData;
 
@@ -140,7 +153,7 @@ namespace SLZ.CustomStaticBatching.Editor
 #if USE_GPU_VTX_TRANSFER
 				combinedMeshReadbacks[i] = cml.ComputeCopyMeshes(ref uniqueMeshLayout, ref combinedMeshLayouts[i], ref rendererScaleSign, CombinedMesh, sortedRenderers, cMeshIdxRange[i], renderer2Mesh, ref invalidMeshes, uniqueMeshList);
 #else
-				cml.JobCopyMeshes(ref uniqueMeshLayout, ref combinedMeshLayouts[i], ref rendererScaleSign, combinedMesh, sortedRenderers, cMeshIdxRange[i], renderer2Mesh, uniqueMeshData);
+				cml.JobCopyMeshes(ref uniqueMeshLayout, ref combinedMeshLayouts[i], ref rendererScaleSign, combinedMesh, sortedRenderers, cMeshIdxRange[i], renderer2Mesh, uniqueMeshData, hasDynUVMeshes, rIdxToDynIdx, dynUvMeshDataArray);
 #endif
 				profilerComputeCopyMeshes.End();
 				profilerAssignSBCombinedMesh.Begin();
@@ -164,6 +177,16 @@ namespace SLZ.CustomStaticBatching.Editor
 			{
 				combinedMeshLayouts[i].Dispose();
 			}
+#if USING_NEWBLOOD_LIGHTING_INTERNALS
+			if (hasDynUVMeshes)
+			{
+				dynUvMeshDataArray.Dispose();
+			}
+			if (scriptableLightingData != null)
+			{
+				UnityEngine.Object.DestroyImmediate(scriptableLightingData);
+			}
+#endif
 		}
 
 		delegate void dSetStaticBatchInfo(Renderer renderer, int firstSubMesh, int subMeshCount);
