@@ -10,6 +10,7 @@ using UnityEngine;
 using System.Runtime.CompilerServices;
 using UnityEngine.UIElements;
 using System;
+using static SLZ.CustomStaticBatching.PackedChannel;
 
 
 namespace SLZ.CustomStaticBatching
@@ -67,7 +68,7 @@ namespace SLZ.CustomStaticBatching
 		[ReadOnly]
 		public NativeArray<PackedChannel> outPackedChannelInfo;
 		[ReadOnly]
-		public FixedList32Bytes<uint> formatToBytes;
+		public FixedList32Bytes<ushort> formatToBytes;
 		[ReadOnly]
 		public bool normalizeNormTan;
 		[ReadOnly]
@@ -100,11 +101,13 @@ namespace SLZ.CustomStaticBatching
 		}
 	
 
-		const int
-		FORMAT_FLOAT = 4, // 0 - float
-		FORMAT_HALF = 3, // 1 - half
-		FORMAT_SNORM = 2, // 2 - snorm
-		FORMAT_UNORM = 1; // 3 - unorm
+		//const int
+		//FORMAT_FLOAT = 6, // 0 - float
+		//FORMAT_HALF = 5, // 1 - half
+		//FORMAT_SNORM16 = 4,
+		//FORMAT_UNORM16 = 3,
+		//FORMAT_SNORM8 = 2, // 2 - snorm
+		//FORMAT_UNORM8 = 1; // 3 - unorm
 
 		[MethodImpl(MethodImplOptions.AggressiveInlining)]
 		static uint GetDimension(uint packedInfo)
@@ -137,6 +140,14 @@ namespace SLZ.CustomStaticBatching
 			return floatVal;
 		}
 
+		[MethodImpl(MethodImplOptions.AggressiveInlining)]
+		static float4 ConvertUNorm16_4ToFloat4(uint2 packedValue)
+		{
+			uint4 unpackedVal = new uint4(0x0000FFFF & packedValue.x, 0x0000FFFF & (packedValue.x >> 16), 0x0000FFFF & (packedValue.y), 0x0000FFFF & (packedValue.y >> 16));
+			float4 floatVal = (1.0f / 65535.0f) * new float4(unpackedVal);
+			return floatVal;
+		}
+
 		// Float To UNorm -------------------------------------------------------------
 
 		[MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -145,6 +156,15 @@ namespace SLZ.CustomStaticBatching
 			uint4 int3Val = new uint4(round(255.0f * saturate(value)));
 			//int3Val = int3Val & 0x000000FFu;
 			uint intVal = int3Val.x | (int3Val.y << 8) | (int3Val.z << 16) | (int3Val.w << 24);
+			return intVal;
+		}
+
+		[MethodImpl(MethodImplOptions.AggressiveInlining)]
+		static uint2 ConvertFloat4ToUNorm16_4(float4 value)
+		{
+			uint4 int3Val = new uint4(round(65535.0f * saturate(value)));
+			//int3Val = int3Val & 0x000000FFu;
+			uint2 intVal = uint2(int3Val.x | (int3Val.y << 16), (int3Val.z) | (int3Val.w << 16));
 			return intVal;
 		}
 
@@ -160,6 +180,16 @@ namespace SLZ.CustomStaticBatching
 			return floatVal;
 		}
 
+		[MethodImpl(MethodImplOptions.AggressiveInlining)]
+		static float4 ConvertSNorm16_4ToFloat4(uint2 packedValue)
+		{
+			uint4 unpackedVal = new uint4(packedValue.x << 16, 0xFFFF0000 & packedValue.x, packedValue.y << 16, 0xFFFF0000 & packedValue.y);
+			int4 unpackedSVal = asint(unpackedVal) / 0x10000;
+			float4 floatVal = max((1.0f / 32767.0f) * new float4(unpackedSVal), -1.0f);
+			return floatVal;
+		}
+
+
 		// Float To SNorm -------------------------------------------------------------
 		[MethodImpl(MethodImplOptions.AggressiveInlining)]
 		static uint ConvertFloat4ToSNorm4(float4 value)
@@ -167,6 +197,15 @@ namespace SLZ.CustomStaticBatching
 			int4 intVal = new int4(round(clamp(value, -1.0f, 1.0f) * 127.0f)) * 0x1000000; // multiply by 2^24 to shift the non-sign bits 24 bits to the right, so we have an 8 bit signed int at the end of the 32-bit int
 			uint4 uintVal = asuint(intVal);
 			uint composite = uintVal.x >> 24 | (uintVal.y >> 16) | (uintVal.z >> 8) | (uintVal.w);
+			return composite;
+		}
+
+		[MethodImpl(MethodImplOptions.AggressiveInlining)]
+		static uint2 ConvertFloat4ToSNorm16_4(float4 value)
+		{
+			int4 intVal = new int4(round(clamp(value, -1.0f, 1.0f) * 32767.0f)) * 0x10000; // multiply by 2^16 to shift the non-sign bits 16 bits to the right, so we have an 16 bit signed int at the end of the 32-bit int
+			uint4 uintVal = asuint(intVal);
+			uint2 composite = uint2(uintVal.x >> 16 | (uintVal.y), (uintVal.z >> 16) | (uintVal.w));
 			return composite;
 		}
 
@@ -309,13 +348,17 @@ namespace SLZ.CustomStaticBatching
 		[MethodImpl(MethodImplOptions.AggressiveInlining)]
 		static float4 ConvertRawToFloat(uint4 value, uint format)
 		{
-			format = clamp(format, FORMAT_UNORM, FORMAT_FLOAT);
+			format = clamp(format, FORMAT_UNORM8, FORMAT_FLOAT);
 			switch (format)
 			{
-				case FORMAT_UNORM: // unorm
+				case FORMAT_UNORM8: // unorm
 					return ConvertUNorm4ToFloat4(value.x);
-				case FORMAT_SNORM: // snorm
+				case FORMAT_SNORM8: // snorm
 					return ConvertSNorm4ToFloat4(value.x);
+				case FORMAT_UNORM16: // unorm16
+					return ConvertUNorm16_4ToFloat4(value.xy);
+				case FORMAT_SNORM16: // unorm16
+					return ConvertSNorm16_4ToFloat4(value.xy);
 				case FORMAT_HALF: // half
 					return ConvertHalf4toFloat4(value.xy);
 				case FORMAT_FLOAT: // float
@@ -328,16 +371,20 @@ namespace SLZ.CustomStaticBatching
 		[MethodImpl(MethodImplOptions.AggressiveInlining)]
 		static uint4 ConvertFloatToRaw(float4 value, uint format)
 		{
-			format = clamp(format, FORMAT_UNORM, FORMAT_FLOAT);
+			format = clamp(format, FORMAT_UNORM8, FORMAT_FLOAT);
 			switch (format)
 			{
 				case FORMAT_FLOAT: // float
 					return asuint(value);
 				case FORMAT_HALF: // half
 					return uint4(ConvertFloat4ToHalf4(value), 0, 0);
-				case FORMAT_SNORM: // snorm
+				case FORMAT_SNORM16: // snorm
+					return uint4(ConvertFloat4ToSNorm16_4(value), 0, 0);
+				case FORMAT_UNORM16: // snorm
+					return uint4(ConvertFloat4ToUNorm16_4(value), 0, 0);
+				case FORMAT_SNORM8: // snorm
 					return uint4(ConvertFloat4ToSNorm4(value), 0, 0, 0);
-				case FORMAT_UNORM: // unorm
+				case FORMAT_UNORM8: // unorm
 					return uint4(ConvertFloat4ToUNorm4(value), 0, 0, 0);
 				default:
 					return uint4(0, 0, 0, 0);
@@ -426,11 +473,11 @@ namespace SLZ.CustomStaticBatching
 				normal = mul(normal, (float3x3)WorldToObject);
 
 				uint outFmt = GetFormat(outPackedInfo);
-				if (outFmt == FORMAT_SNORM || normalizeNormTan)
+				if (outFmt == FORMAT_SNORM8 || normalizeNormTan)
 				{
 					normal = normalize(normal);
 				}
-				outFmt = clamp(outFmt, FORMAT_SNORM, FORMAT_FLOAT);
+				outFmt = clamp(outFmt, FORMAT_SNORM8, FORMAT_FLOAT);
 				rawData = ConvertFloatToRaw(float4(normal.xyz, 0), outFmt);
 				bool altOut = GetStream(outPackedInfo) > 0;
 				uint outAddress = (altOut ? vertOutAdr2 : vertOutAdr) + GetOffset(outPackedInfo);
@@ -458,8 +505,8 @@ namespace SLZ.CustomStaticBatching
 				tangent.w *= offset_strideIn_offset2_strideIn2.w < 0 ? -1 : 1; // sign of tanget stored in sign of strideIn2
 
 				uint outFmt = GetFormat(outPackedInfo);
-				outFmt = clamp(outFmt, FORMAT_SNORM, FORMAT_FLOAT);
-				if (outFmt == FORMAT_SNORM || normalizeNormTan)
+				outFmt = clamp(outFmt, FORMAT_SNORM8, FORMAT_FLOAT);
+				if (outFmt == FORMAT_SNORM8 || normalizeNormTan)
 				{
 					tangent.xyz = normalize(tangent.xyz);
 				}

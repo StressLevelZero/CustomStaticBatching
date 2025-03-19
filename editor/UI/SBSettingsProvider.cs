@@ -104,7 +104,7 @@ namespace SLZ.CustomStaticBatching.Editor
 			//EditorToolbarUtility.SetupChildrenAsButtonStrip(testButtonStrip);
 		}
 
-		static string[] VtxFormatNames = new string[] { "Use Player Vertex Compression", "UNorm8", "SNorm8", "Float16", "Float32" };
+		static string[] VtxFormatNames = new string[] { "Use Player Vertex Compression", "UNorm8", "SNorm8", "UNorm16", "SNorm16", "Float16", "Float32" };
 		
 		class PlatformSettingsPage : VisualElement
 		{
@@ -258,7 +258,7 @@ namespace SLZ.CustomStaticBatching.Editor
 				vertexSettings.Add(columnLabels);
 
 				// vertex channel compression
-				List<int> normTanFmtsInt = new List<int>() { (int)VtxFormats.Float32, (int)VtxFormats.Float16, (int)VtxFormats.SNorm8, 0};
+				List<int> normTanFmtsInt = new List<int>() { (int)VtxFormats.Float32, (int)VtxFormats.Float16, (int)VtxFormats.SNorm16, (int)VtxFormats.SNorm8, 0};
 				VisualElement normField = VtxCompressionOption("Normal", settings, rootBindingPath, 1, normTanFmtsInt);
 			
 				vertexSettings.contentContainer.Add(normField);
@@ -266,12 +266,12 @@ namespace SLZ.CustomStaticBatching.Editor
 				VisualElement tanField = VtxCompressionOption("Tangent", settings, rootBindingPath, 2, normTanFmtsInt);
 				vertexSettings.contentContainer.Add(tanField);
 
-				List<int> colorFmtsInt = new List<int>() { (int)VtxFormats.Float32, (int)VtxFormats.Float16, (int)VtxFormats.UNorm8, 0 };
+				List<int> colorFmtsInt = new List<int>() { (int)VtxFormats.Float32, (int)VtxFormats.SNorm16, (int)VtxFormats.UNorm16, (int)VtxFormats.Float16, (int)VtxFormats.UNorm8, 0 };
 				VisualElement colorField = VtxCompressionOption("Color", settings, rootBindingPath, 3, colorFmtsInt);
 			
 				vertexSettings.contentContainer.Add(colorField);
 
-				List<int> uvFmtsInt = new List<int>() { (int)VtxFormats.Float32, (int)VtxFormats.Float16, (int)VtxFormats.SNorm8, (int)VtxFormats.UNorm8, 0 };
+				List<int> uvFmtsInt = new List<int>() { (int)VtxFormats.Float32, (int)VtxFormats.Float16, (int)VtxFormats.SNorm16, (int)VtxFormats.UNorm16, (int)VtxFormats.SNorm8, (int)VtxFormats.UNorm8, 0 };
 				
 				for (int i = 0; i < 8; i++)
 				{

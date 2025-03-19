@@ -276,7 +276,9 @@ namespace SLZ.CustomStaticBatching
             for (int i = 0; i < 16; i++) vtxFmtLUT[i] = (byte)VtxFormats.Invalid; // 0 represents an invalid format
             vtxFmtLUT[(int)VertexAttributeFormat.Float32] = (byte)VtxFormats.Float32;
             vtxFmtLUT[(int)VertexAttributeFormat.Float16] = (byte)VtxFormats.Float16;
-            vtxFmtLUT[(int)VertexAttributeFormat.SNorm8] = (byte)VtxFormats.SNorm8;
+			vtxFmtLUT[(int)VertexAttributeFormat.SNorm16] = (byte)VtxFormats.SNorm16;
+			vtxFmtLUT[(int)VertexAttributeFormat.UNorm16] = (byte)VtxFormats.UNorm16;
+			vtxFmtLUT[(int)VertexAttributeFormat.SNorm8] = (byte)VtxFormats.SNorm8;
             vtxFmtLUT[(int)VertexAttributeFormat.UNorm8] = (byte)VtxFormats.UNorm8;
             for (int i = 0; i < numMeshes; i++)
             {
@@ -322,7 +324,9 @@ namespace SLZ.CustomStaticBatching
             for (int i = 0; i < 16; i++) vtxFmtLUT[i] = (byte)VtxFormats.Invalid; // 255 represents an invalid format
             vtxFmtLUT[(int)VertexAttributeFormat.Float32] = (byte)VtxFormats.Float32;
             vtxFmtLUT[(int)VertexAttributeFormat.Float16] = (byte)VtxFormats.Float16;
-            vtxFmtLUT[(int)VertexAttributeFormat.SNorm8] = (byte)VtxFormats.SNorm8;
+			vtxFmtLUT[(int)VertexAttributeFormat.SNorm16] = (byte)VtxFormats.SNorm16;
+			vtxFmtLUT[(int)VertexAttributeFormat.UNorm16] = (byte)VtxFormats.UNorm16;
+			vtxFmtLUT[(int)VertexAttributeFormat.SNorm8] = (byte)VtxFormats.SNorm8;
             vtxFmtLUT[(int)VertexAttributeFormat.UNorm8] = (byte)VtxFormats.UNorm8;
 
             GetMeshLayoutJob getLayout = new GetMeshLayoutJob { _meshChannels = meshChannels, _invalidMeshes = invalidMeshes, _vtxFmtLUT = vtxFmtLUT, _meshData = meshDataArray };
@@ -484,7 +488,7 @@ namespace SLZ.CustomStaticBatching
             int meshIdxCount = meshIndex.Count;
             //Debug.Log("Unique Mesh count in combined mesh: " +  meshIdxCount);
             NativeArray<PackedChannel> combinedFormat = new NativeArray<PackedChannel>(NUM_VTX_CHANNELS, Allocator.TempJob);
-            Span<int> minTypeLUT = stackalloc int[] { 1, 4, 4, 2, 1 };
+            Span<int> minTypeLUT = stackalloc int[] { 1, 4, 4, 2, 2, 2, 1 };
             Span<bool> useAltStream = stackalloc bool[12];
             crs.altStream.CopyTo(useAltStream);
             int altStreamFlag = 1 << 24;
@@ -1126,7 +1130,7 @@ namespace SLZ.CustomStaticBatching
             int combinedMeshCopyIndex2 = 0;
             int numMeshesCopied = 0;
 
-            FixedList32Bytes<uint> formatToBytes = new FixedList32Bytes<uint>() { 1, 1, 1, 2, 4 };
+            FixedList32Bytes<ushort> formatToBytes = VtxFmtToBytesFixed();
 
             NativeArray<PackedChannel> meshPackedChannels2 = new NativeArray<PackedChannel>(NUM_VTX_CHANNELS, Allocator.TempJob);
             for (int renderer = rendererRange.x; renderer < rendererRange.y; renderer++)

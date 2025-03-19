@@ -12,7 +12,7 @@ namespace SLZ.CustomStaticBatching.Editor
 		public bool executeInPlayMode = true;
 		private static SBSettingsSO m_globalSettings;
 
-		const int currentSettingsVersion = 1;
+		const int currentSettingsVersion = 2;
 		public int thisSettingsVersion = currentSettingsVersion;
 		public EditorCombineRendererSettings defaultSettings;
 		public List<EditorCombineRendererSettings> platformOverrideSettings;
@@ -25,7 +25,7 @@ namespace SLZ.CustomStaticBatching.Editor
 
 		private void OnEnable()
 		{
-			
+			UpdateSettings();
 			BuildPlatformsMirror.buildPlatformInfo[] buildPlatforms = BuildPlatformsMirror.ValidBuildPlatforms;
 			if (platformOverrideSettings == null || platformOverrideSettings.Count == 0)
 			{
@@ -49,6 +49,37 @@ namespace SLZ.CustomStaticBatching.Editor
 						platformOverrideSettings.Add(new EditorCombineRendererSettings(buildPlatforms[i].buildTarget.TargetName));
 				}
 			}
+		}
+
+		private void UpdateSettings()
+		{
+			// Added unorm16 and snorm16
+			if (thisSettingsVersion == 1)
+			{
+				
+				for( int i = 0; i < 12; i++)
+				{
+					if (defaultSettings.settings.serializedVtxFormats[i] > 2)
+					{
+						defaultSettings.settings.serializedVtxFormats[i] += 2;
+					}
+				}
+				int numPlatforms = platformOverrideSettings.Count;
+				for (int pIdx = 0; pIdx < numPlatforms; pIdx++)
+				{
+					EditorCombineRendererSettings platSettings = platformOverrideSettings[pIdx];
+					for (int i = 0; i < 12; i++)
+					{
+						if (platSettings.settings.serializedVtxFormats[i] > 2)
+						{
+							platSettings.settings.serializedVtxFormats[i] += 2;
+						}
+					}
+				}
+				thisSettingsVersion = 2;
+				EditorUtility.SetDirty(this);
+			}
+
 		}
 
 		public CombineRendererSettings GetActiveBuildTargetSettings()
