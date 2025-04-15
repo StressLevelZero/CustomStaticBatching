@@ -63,7 +63,21 @@ namespace SLZ.CustomStaticBatching.Editor
 			{
 
 				float4 scaleOffset = dynLMObjs[dIdx].realtimeLightmapScaleOffset + new Vector4(dynLMObjs[dIdx].realtimeLightmapIndex, 0, 0, 0);
-				scaleOffsetToIndex.Add(scaleOffset, dIdx);
+
+				bool success = scaleOffsetToIndex.TryAdd(scaleOffset, dIdx);
+				if (!success)
+				{
+					Debug.LogError("CustomStaticBatching: could not add dynamic lightmapped object to dictionary as there was already an object with the same scale/offset/index! Aborting copying dynamic GI lightmap scale-offsets to prevent mesh-object mis-matches!\n" +
+						$"Scale/Offset/Index: {scaleOffset}\n" +
+						$"original: {AnimationUtility.CalculateTransformPath(dynLMObjs[scaleOffsetToIndex[scaleOffset]].transform, null)}\n" +
+						$"new: {AnimationUtility.CalculateTransformPath(dynLMObjs[dIdx].transform, null)}");
+
+					uvMeshes = null;
+					rIdxToDynIdx = null;
+					scriptableLightingData = null;
+					dynUvMeshDataArray = (default);
+					return false;
+				}
 			}
 
 			ScriptableLightingData lightData = ScriptableObject.CreateInstance<ScriptableLightingData>();
