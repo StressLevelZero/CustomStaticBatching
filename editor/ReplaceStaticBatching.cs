@@ -20,7 +20,7 @@ namespace SLZ.CustomStaticBatching
                 Debug.Log("Skipping custom static batching, play mode execution disabled in settings");
                 return;
             }
-            Debug.Log("Running static batching for " + scene.name);
+            //Debug.Log("Running static batching for " + scene.name);
             GameObject[] selection = scene.GetRootGameObjects();
             List<MeshRenderer> renderers = new List<MeshRenderer>();
 

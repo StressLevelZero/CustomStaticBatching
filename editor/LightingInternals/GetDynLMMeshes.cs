@@ -85,7 +85,7 @@ namespace SLZ.CustomStaticBatching.Editor
 			lightData.Read(Lightmapping.lightingDataAsset);
 			ScriptableLightingData.RendererData[] lmRendererData = lightData.lightmappedRendererData;
 			int numData = lmRendererData.Length;
-			int numFound = 0;
+			//int numFound = 0;
 			StringBuilder logLms = new StringBuilder("Lightmapped object IDs found in scene: \n");
 
 			uvMeshes = new List<Mesh>(new Mesh[numDynamic]);
